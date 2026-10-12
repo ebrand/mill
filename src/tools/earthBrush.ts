@@ -1,10 +1,10 @@
-import { BufferAttribute, BufferGeometry, type Camera, LineLoop, Raycaster, Vector2 } from 'three';
+import { BufferAttribute, BufferGeometry, type Camera, Line, Raycaster, Vector2 } from 'three';
 import { vec4 } from 'three/tsl';
 import { LineBasicNodeMaterial } from 'three/webgpu';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { TerrainMeshes } from '../world/terrainMesh';
 
-export type Tool = 'look' | 'dig' | 'fill';
+export type Tool = 'look' | 'dig' | 'fill' | 'channel';
 
 const RING_SEGMENTS = 64;
 /** Change in ground height per second at the brush center, in meters. */
@@ -21,7 +21,8 @@ export class EarthBrush {
   /** Running totals, m^3. */
   cut = 0;
   fill = 0;
-  readonly ring: LineLoop;
+  /** A closed strip (first vertex repeated): WebGPU has no line-loop primitive. */
+  readonly ring: Line;
 
   private readonly ndc = new Vector2();
   private readonly raycaster = new Raycaster();
@@ -38,8 +39,12 @@ export class EarthBrush {
     this.inside = false;
     this.down = false;
   };
+  private get working(): boolean {
+    return this.tool === 'dig' || this.tool === 'fill';
+  }
+
   private readonly onDown = (e: PointerEvent) => {
-    if (e.button === 0 && this.tool !== 'look') this.down = true;
+    if (e.button === 0 && this.working) this.down = true;
   };
   private readonly onUp = (e: PointerEvent) => {
     if (e.button === 0) this.down = false;
@@ -52,11 +57,11 @@ export class EarthBrush {
     private readonly onBedChanged: (rect: Rect) => void,
   ) {
     const g = new BufferGeometry();
-    g.setAttribute('position', new BufferAttribute(new Float32Array(RING_SEGMENTS * 3), 3));
+    g.setAttribute('position', new BufferAttribute(new Float32Array((RING_SEGMENTS + 1) * 3), 3));
     const material = new LineBasicNodeMaterial();
     // Full ink, surface id 0, no wash.
     material.outputNode = vec4(1, 1, 0, 0);
-    this.ring = new LineLoop(g, material);
+    this.ring = new Line(g, material);
     this.ring.frustumCulled = false;
     this.ring.visible = false;
     dom.addEventListener('pointermove', this.onMove);
@@ -77,7 +82,7 @@ export class EarthBrush {
 
   update(delta: number, camera: Camera) {
     this.hit = null;
-    if (this.tool === 'look' || !this.inside) {
+    if (!this.working || !this.inside) {
       this.ring.visible = false;
       return;
     }
@@ -107,7 +112,7 @@ export class EarthBrush {
 
   private drawRing(x: number, z: number) {
     const pos = this.ring.geometry.getAttribute('position') as BufferAttribute;
-    for (let k = 0; k < RING_SEGMENTS; k++) {
+    for (let k = 0; k <= RING_SEGMENTS; k++) {
       const a = (k / RING_SEGMENTS) * Math.PI * 2;
       const px = x + Math.cos(a) * this.radius;
       const pz = z + Math.sin(a) * this.radius;

@@ -105,6 +105,37 @@ export class WaterClient {
     }
   }
 
+  /**
+   * Water at a world position from the latest state: surface elevation and depth (0 if
+   * dry). Null before the first state arrives or outside the grid.
+   */
+  surfaceAt(x: number, z: number): { eta: number; depth: number } | null {
+    const g = this.grid;
+    const data = this.texture?.image.data as Float32Array | undefined;
+    if (!g || !data || !this.stats) return null;
+    const i = Math.floor((x - g.x0) / g.dx);
+    const j = Math.floor((z - g.z0) / g.dx);
+    if (i < 0 || j < 0 || i >= g.nx || j >= g.nz) return null;
+    const o = (j * g.nx + i) * STATE_STRIDE;
+    const depth = data[o + 1];
+    return { eta: data[o], depth: depth > 0 ? depth : 0 };
+  }
+
+  /** Lowest water surface among wet cells within `radius` of a point (e.g. the tailwater). */
+  lowestWaterNear(x: number, z: number, radius: number): number | null {
+    const g = this.grid;
+    if (!g) return null;
+    let best: number | null = null;
+    for (let dz = -radius; dz <= radius; dz += g.dx) {
+      for (let dx = -radius; dx <= radius; dx += g.dx) {
+        if (dx * dx + dz * dz > radius * radius) continue;
+        const w = this.surfaceAt(x + dx, z + dz);
+        if (w && w.depth > 0.05 && (best === null || w.eta < best)) best = w.eta;
+      }
+    }
+    return best;
+  }
+
   /** Send edited terrain for a rectangle of samples to the sim. */
   updateBed(rect: Rect) {
     // No readiness check: messages queue in order behind 'init', so early edits still land.

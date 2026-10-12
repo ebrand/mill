@@ -3,9 +3,10 @@ import { useEffect, useMemo, useRef } from 'react';
 import { AmbientLight, DirectionalLight, MOUSE, NoToneMapping, type PerspectiveCamera } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { WebGPURenderer } from 'three/webgpu';
-import { devExpose } from '../debug/devExpose';
+import { devExpose, isTyping } from '../debug/devExpose';
 import { inkTime, lighting, toneGain, washShadows } from '../ink/materials';
 import { createInkPipeline } from '../ink/pipeline';
+import { type ChannelController, ChannelView } from '../tools/channelTool';
 import { BRUSH_RADIUS, EarthBrush, type Tool } from '../tools/earthBrush';
 import type { SimStats } from '../water/protocol';
 import { WaterClient } from '../water/WaterClient';
@@ -32,11 +33,20 @@ export interface WaterHud {
 }
 
 /** The pen-and-ink site with the simulated river and earthworks. */
-export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud) => void; tool?: Tool }) {
+export function StyleTest({
+  onWater,
+  tool = 'look',
+  channel,
+}: {
+  onWater?: (hud: WaterHud) => void;
+  tool?: Tool;
+  channel?: ChannelController;
+}) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
   const water = useRef<WaterClient | null>(null);
   const brush = useRef<EarthBrush | null>(null);
+  const channelView = useRef<ChannelView | null>(null);
 
   // The one editable terrain: rendered, simulated over, and dug.
   const field = useMemo(() => createSiteField(WATER_DX), []);
@@ -88,6 +98,7 @@ export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud
     });
 
     const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e)) return;
       const speedKey = ['Digit0', 'Digit1', 'Digit2', 'Digit3'].indexOf(e.code);
       if (speedKey >= 0) client.speed = SPEEDS[speedKey];
       if (e.code === 'BracketLeft') client.setDischarge(client.discharge - 2);
@@ -111,6 +122,7 @@ export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud
     brush.current = b;
     scene.add(b.ring);
     const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e)) return;
       if (e.code === 'Comma') b.radius = Math.max(BRUSH_RADIUS.min, b.radius / 1.25);
       if (e.code === 'Period') b.radius = Math.min(BRUSH_RADIUS.max, b.radius * 1.25);
     };
@@ -124,9 +136,38 @@ export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud
     };
   }, [scene, renderer, field, site]);
 
+  // Channel planning: the controller (shared with the UI panel) works on our terrain; the
+  // view draws the proposal and handles clicks on the ground.
+  useEffect(() => {
+    if (!channel) return;
+    channel.env = {
+      field,
+      water: () => water.current,
+      onCommit: (result) => {
+        site.terrain.update(result.rect);
+        water.current?.updateBed(result.rect);
+        if (brush.current) {
+          brush.current.cut += result.cut;
+          brush.current.fill += result.fill;
+        }
+      },
+    };
+    const view = new ChannelView(channel, field, renderer.domElement, () => camera);
+    channelView.current = view;
+    scene.add(view.group);
+    devExpose({ channel, channelView: view });
+    return () => {
+      scene.remove(view.group);
+      view.dispose();
+      channelView.current = null;
+      channel.env = null;
+    };
+  }, [channel, field, site, renderer, scene, camera]);
+
   // With a tool active, the left button works the ground; orbit moves to the right button.
   useEffect(() => {
     brush.current?.setTool(tool);
+    if (channelView.current) channelView.current.active = tool === 'channel';
     const controls = (camera.userData as { controls?: OrbitControls }).controls;
     if (controls) {
       controls.mouseButtons.LEFT = tool === 'look' ? MOUSE.ROTATE : (-1 as MOUSE);
@@ -148,6 +189,7 @@ export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud
     controls.update();
 
     const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e)) return;
       if (e.code === 'KeyC') site.cutaway.visible = !site.cutaway.visible;
       if (e.code === 'KeyE') ink.edgesOn.value = ink.edgesOn.value ? 0 : 1;
       if (e.code === 'KeyH') ink.hatchOn.value = ink.hatchOn.value ? 0 : 1;
@@ -170,6 +212,11 @@ export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud
     inkTime.value += delta;
     site.wheelSpin.rotation.z += delta * 0.9;
     brush.current?.update(delta, camera);
+    if (channel) channel.update(performance.now());
+    if (channelView.current) {
+      channelView.current.active = tool === 'channel';
+      channelView.current.update();
+    }
     const client = water.current;
     if (client) {
       client.update(delta);

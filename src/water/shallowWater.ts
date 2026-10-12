@@ -11,6 +11,9 @@
 // - A Froude limiter caps each edge at critical flow, |q| <= h * sqrt(g h). Without it the
 //   model pushes water over drops several times too fast; with it, flow over a crest goes
 //   critical and the broad-crested weir law (Q ~ 1.7 L H^1.5) emerges on its own.
+// - Each edge's previous discharge is blended with its two neighbours along the flow
+//   direction (theta weighting, de Almeida et al. 2012). The plain scheme develops
+//   checkerboard oscillations in narrow, deep, low-friction channels; this damps them.
 // - Outflow limiting guarantees depth never goes negative.
 //
 // Plain TypeScript with typed arrays: it runs in a Web Worker and headless in tests.
@@ -69,6 +72,14 @@ export class ShallowWater {
   /** Unit discharge (m^2/s) on z-edges: index j * nx + i is the edge "below" cell (i, j). */
   readonly qz: Float64Array;
   manning = 0.035;
+  /** Weight on an edge's own previous discharge (1 = plain Bates scheme). */
+  theta = 0.9;
+  /**
+   * Courant number for the step length. Bates et al. use 0.7, but with theta weighting
+   * that blows up (measured: a lake at rest went unstable); 0.5 is stable and still let
+   * a narrow channel settle to steady flow, which 0.7 didn't.
+   */
+  courant = 0.5;
   inflow: Inflow | null = null;
   outflow: Outflow | null = null;
   /** Simulated seconds. */
@@ -83,6 +94,8 @@ export class ShallowWater {
   lastWeirFlow = 0;
 
   private readonly limit: Float64Array;
+  private readonly qxOld: Float64Array;
+  private readonly qzOld: Float64Array;
 
   constructor(spec: GridSpec, bed: Float64Array) {
     this.nx = spec.nx;
@@ -97,6 +110,8 @@ export class ShallowWater {
     this.qx = new Float64Array((spec.nx + 1) * spec.nz);
     this.qz = new Float64Array(spec.nx * (spec.nz + 1));
     this.limit = new Float64Array(n);
+    this.qxOld = new Float64Array(this.qx.length);
+    this.qzOld = new Float64Array(this.qz.length);
   }
 
   addWeir(weir: Weir): void {
@@ -122,8 +137,8 @@ export class ShallowWater {
     return m;
   }
 
-  /** Largest stable timestep (Bates et al. use alpha ~ 0.7). */
-  stableDt(alpha = 0.7): number {
+  /** Largest stable timestep for Courant number `alpha`. */
+  stableDt(alpha = this.courant): number {
     const h = Math.max(this.maxDepth(), 0.01);
     return (alpha * this.dx) / Math.sqrt(G * h);
   }
@@ -139,7 +154,7 @@ export class ShallowWater {
    * "leftover" step at the end of every call) excite oscillations in this staggered scheme.
    * Returns the number of steps taken.
    */
-  advance(seconds: number, alpha = 0.7): number {
+  advance(seconds: number, alpha = this.courant): number {
     this.pending += seconds;
     let steps = 0;
     for (;;) {
@@ -163,6 +178,12 @@ export class ShallowWater {
     const { nx, nz, dx, bed, depth, qx, qz } = this;
     const n2 = this.manning * this.manning;
     const gdt = G * dt;
+    const theta = this.theta;
+    const side = (1 - theta) / 2;
+    const qxOld = this.qxOld;
+    const qzOld = this.qzOld;
+    qxOld.set(qx);
+    qzOld.set(qz);
 
     const edge = (q: number, bL: number, hL: number, bR: number, hR: number): number => {
       const etaL = bL + hL;
@@ -184,7 +205,9 @@ export class ShallowWater {
       for (let i = 1; i < nx; i++) {
         const L = row + i - 1;
         const R = row + i;
-        qx[erow + i] = edge(qx[erow + i], bed[L], depth[L], bed[R], depth[R]);
+        const e = erow + i;
+        const qBlend = theta * qxOld[e] + side * (qxOld[e - 1] + qxOld[e + 1]);
+        qx[e] = edge(qBlend, bed[L], depth[L], bed[R], depth[R]);
       }
       // West boundary: wall unless it's an inflow row (set below).
       qx[erow] = 0;
@@ -205,7 +228,9 @@ export class ShallowWater {
       const above = j * nx;
       const erow = j * nx;
       for (let i = 0; i < nx; i++) {
-        qz[erow + i] = edge(qz[erow + i], bed[below + i], depth[below + i], bed[above + i], depth[above + i]);
+        const e = erow + i;
+        const qBlend = theta * qzOld[e] + side * (qzOld[e - nx] + qzOld[e + nx]);
+        qz[e] = edge(qBlend, bed[below + i], depth[below + i], bed[above + i], depth[above + i]);
       }
     }
 
