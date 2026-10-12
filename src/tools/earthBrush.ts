@@ -4,7 +4,7 @@ import { LineBasicNodeMaterial } from 'three/webgpu';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { TerrainMeshes } from '../world/terrainMesh';
 
-export type Tool = 'look' | 'dig' | 'fill' | 'channel';
+export type Tool = 'look' | 'dig' | 'fill' | 'channel' | 'bank';
 
 const RING_SEGMENTS = 64;
 /** Change in ground height per second at the brush center, in meters. */

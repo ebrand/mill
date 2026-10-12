@@ -6,7 +6,9 @@ import type { WebGPURenderer } from 'three/webgpu';
 import { devExpose, isTyping } from '../debug/devExpose';
 import { inkTime, lighting, toneGain, washShadows } from '../ink/materials';
 import { createInkPipeline } from '../ink/pipeline';
-import { type ChannelController, ChannelView } from '../tools/channelTool';
+import type { ChannelController } from '../tools/channelTool';
+import type { EmbankmentController } from '../tools/embankmentTool';
+import { PathView } from '../tools/pathView';
 import { BRUSH_RADIUS, EarthBrush, type Tool } from '../tools/earthBrush';
 import type { SimStats } from '../water/protocol';
 import { WaterClient } from '../water/WaterClient';
@@ -37,16 +39,19 @@ export function StyleTest({
   onWater,
   tool = 'look',
   channel,
+  bank,
 }: {
   onWater?: (hud: WaterHud) => void;
   tool?: Tool;
   channel?: ChannelController;
+  bank?: EmbankmentController;
 }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
   const water = useRef<WaterClient | null>(null);
   const brush = useRef<EarthBrush | null>(null);
-  const channelView = useRef<ChannelView | null>(null);
+  const channelView = useRef<PathView | null>(null);
+  const bankView = useRef<PathView | null>(null);
 
   // The one editable terrain: rendered, simulated over, and dug.
   const field = useMemo(() => createSiteField(WATER_DX), []);
@@ -152,7 +157,7 @@ export function StyleTest({
         }
       },
     };
-    const view = new ChannelView(channel, field, renderer.domElement, () => camera);
+    const view = new PathView(channel, field, renderer.domElement, () => camera);
     channelView.current = view;
     scene.add(view.group);
     devExpose({ channel, channelView: view });
@@ -164,10 +169,35 @@ export function StyleTest({
     };
   }, [channel, field, site, renderer, scene, camera]);
 
+  // Bank (embankment) planning, the same way.
+  useEffect(() => {
+    if (!bank) return;
+    bank.env = {
+      field,
+      water: () => water.current,
+      onCommit: (result) => {
+        site.terrain.update(result.rect);
+        water.current?.updateBed(result.rect);
+        if (brush.current) brush.current.fill += result.fill;
+      },
+    };
+    const view = new PathView(bank, field, renderer.domElement, () => camera);
+    bankView.current = view;
+    scene.add(view.group);
+    devExpose({ bank, bankView: view });
+    return () => {
+      scene.remove(view.group);
+      view.dispose();
+      bankView.current = null;
+      bank.env = null;
+    };
+  }, [bank, field, site, renderer, scene, camera]);
+
   // With a tool active, the left button works the ground; orbit moves to the right button.
   useEffect(() => {
     brush.current?.setTool(tool);
     if (channelView.current) channelView.current.active = tool === 'channel';
+    if (bankView.current) bankView.current.active = tool === 'bank';
     const controls = (camera.userData as { controls?: OrbitControls }).controls;
     if (controls) {
       controls.mouseButtons.LEFT = tool === 'look' ? MOUSE.ROTATE : (-1 as MOUSE);
@@ -216,6 +246,11 @@ export function StyleTest({
     if (channelView.current) {
       channelView.current.active = tool === 'channel';
       channelView.current.update();
+    }
+    if (bank) bank.update(performance.now());
+    if (bankView.current) {
+      bankView.current.active = tool === 'bank';
+      bankView.current.update();
     }
     const client = water.current;
     if (client) {

@@ -167,13 +167,17 @@ export function planChannel(field: TerrainField, plan: ChannelPlan, maxReach = 3
   return { rect: { i0, j0, i1, j1 }, heights, cut, fill, line, fall: plan.bedSlope * line.length };
 }
 
-/** Write a planned channel into the field. */
-export function applyChannel(field: TerrainField, result: ChannelResult): void {
-  const { rect, heights } = result;
+/** Write a rectangle of planned heights (row-major) into the field. */
+export function writeHeights(field: TerrainField, rect: Rect, heights: Float32Array): void {
   const w = rect.i1 - rect.i0;
   for (let j = rect.j0; j < rect.j1; j++) {
     for (let i = rect.i0; i < rect.i1; i++) field.heights[j * field.nx + i] = heights[(j - rect.j0) * w + (i - rect.i0)];
   }
+}
+
+/** Write a planned channel into the field. */
+export function applyChannel(field: TerrainField, result: ChannelResult): void {
+  writeHeights(field, result.rect, result.heights);
 }
 
 /** Manning discharge of a trapezoidal channel flowing at `depth`, m^3/s. */

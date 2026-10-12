@@ -2,8 +2,10 @@ import { Canvas } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isTyping } from './debug/devExpose';
 import { ChannelController } from './tools/channelTool';
+import { EmbankmentController } from './tools/embankmentTool';
 import type { Tool } from './tools/earthBrush';
 import { ChannelPanel } from './ui/ChannelPanel';
+import { EmbankmentPanel } from './ui/EmbankmentPanel';
 import { WebGPURenderer } from 'three/webgpu';
 import { StyleTest, type WaterHud } from './scene/StyleTest';
 
@@ -28,12 +30,14 @@ const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'dig', label: 'Dig', key: 'KeyG' },
   { id: 'fill', label: 'Fill', key: 'KeyV' },
   { id: 'channel', label: 'Channel', key: 'KeyN' },
+  { id: 'bank', label: 'Bank', key: 'KeyB' },
 ];
 
 export function App() {
   const hudRef = useRef<HTMLPreElement>(null);
   const [tool, setTool] = useState<Tool>('look');
   const channel = useMemo(() => new ChannelController(), []);
+  const bank = useMemo(() => new EmbankmentController(), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Typing in the channel panel's fields shouldn't switch tools.
@@ -59,9 +63,10 @@ export function App() {
           return renderer;
         }}
       >
-        <StyleTest onWater={onWater} tool={tool} channel={channel} />
+        <StyleTest onWater={onWater} tool={tool} channel={channel} bank={bank} />
       </Canvas>
       {tool === 'channel' && <ChannelPanel controller={channel} />}
+      {tool === 'bank' && <EmbankmentPanel controller={bank} />}
       <div style={{ position: 'fixed', top: 14, left: 16, display: 'flex', gap: 6, font: '14px Georgia, serif' }}>
         {TOOLS.map((t) => (
           <button
@@ -96,7 +101,7 @@ export function App() {
         <br />
         River: 0 pause · 1 real time · 2 4× · 3 16× · [ ] inflow · R restart dry · F restart filled
         <br />
-        Earth: G dig · V fill · N channel · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
+        Earth: G dig · V fill · N channel · B bank · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
       </div>
     </>
   );
