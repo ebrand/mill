@@ -19,6 +19,9 @@ export const SPILLWAY_HALF_WIDTH = 8;
 export const SPILLWAY_CREST = 1.45;
 export const DAM_TOP = 2.6;
 
+/** World extent of the playable site (and the water sim). */
+export const SITE_BOUNDS = { x0: -130, x1: 130, z0: -70, z1: 90 };
+
 export const MILL = { x0: 8, x1: 30, z0: 14, z1: 26, base: -0.5, wallTop: 10.5, ridge: 15, wall: 0.6 };
 export const WHEEL = { x: 12.5, y: 0.2, z: 11.6, radius: 2.4, width: 2.2 };
 // Breastshot: the flume stops just short of the upstream side of the wheel.

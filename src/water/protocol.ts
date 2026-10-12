@@ -31,8 +31,17 @@ export interface SimStats {
   stepMs: number;
 }
 
+export interface BedRect {
+  i0: number;
+  j0: number;
+  i1: number;
+  j1: number;
+}
+
 export type ToWorker =
-  | { type: 'init'; dx: number; prefill: boolean; discharge: number }
+  | { type: 'init'; prefill: boolean; discharge: number; grid: GridInfo; heights: Float32Array }
+  /** New terrain heights for a rectangle of cells (row-major, (i1 - i0) wide). */
+  | { type: 'bed'; rect: BedRect; heights: Float32Array }
   | { type: 'step'; seconds: number; buffer: ArrayBuffer }
   | { type: 'discharge'; value: number };
 

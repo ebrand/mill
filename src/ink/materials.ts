@@ -5,6 +5,7 @@
 import { Color, DoubleSide, FrontSide, type Side, Vector3 } from 'three';
 import {
   abs,
+  attribute,
   clamp,
   dot,
   float,
@@ -12,6 +13,7 @@ import {
   fract,
   frontFacing,
   fwidth,
+  length,
   luminance,
   max,
   min,
@@ -76,7 +78,22 @@ function patternLines(pattern: Pattern, coord: Node): Node {
       const y = positionWorld.y;
       const contour = lineFamily(vec2(0, y), vec2(0, 1), { base: 0.35, targetPx: 6, widthPx: thin });
       // Contours alone vanish on flat ground; that's intended, flat land reads as paper.
-      return contour.mul(0.55);
+      // Ground material (0 soil, 1 gravel, 2 rock) comes from the terrain mesh, if present.
+      const ground = attribute('ground', 'float');
+      const rock = smoothstep(1.5, 1.9, ground);
+      const gravel = smoothstep(0.5, 0.9, ground).mul(float(1).sub(rock));
+      // Rock: short crossing strokes broken up by noise, like an engraver's crags.
+      const crag = max(
+        lineFamily(coord, vec2(0.45, 0.89), { base: 0.18, targetPx: 6, widthPx: 0.9 }),
+        lineFamily(coord, vec2(0.95, -0.31), { base: 0.25, targetPx: 7, widthPx: 0.9 }).mul(0.7),
+      ).mul(smoothstep(0.05, 0.35, mx_noise_float(positionWorld.mul(1.7))));
+      // Gravel: fine stipple, one dot per small cell at a hashed position.
+      const p = positionWorld.xz.div(0.35);
+      const cell = floor(p);
+      const jitter = vec2(fract(sin(cell.x.mul(12.9898).add(cell.y.mul(78.233))).mul(43758.5)), fract(sin(cell.x.mul(39.35).add(cell.y.mul(11.13))).mul(24634.6)));
+      const px = length(p.sub(cell).sub(jitter.mul(0.7).add(0.15))).mul(0.35).div(max(fwidth(positionWorld.x), 1e-4));
+      const dots = smoothstep(1.3, 0.6, px);
+      return max(max(contour.mul(0.55), crag.mul(rock).mul(0.75)), dots.mul(gravel).mul(0.7));
     }
     case 'masonry': {
       // Courses, plus staggered joints that fade out when too small to read.

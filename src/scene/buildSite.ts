@@ -13,7 +13,8 @@ import {
 } from 'three';
 import { float, positionWorld, vec2 } from 'three/tsl';
 import { fallingWaterMaterial, inkMaterial, waterMaterial } from '../ink/materials';
-import { SITE_BOUNDS as BOUNDS } from '../water/riverSim';
+import type { TerrainField } from '../world/terrainField';
+import { TerrainMeshes } from '../world/terrainMesh';
 import {
   DAM_TOP,
   DAM_X,
@@ -34,39 +35,6 @@ function box(w: number, h: number, d: number, material: Material, x: number, y: 
   m.position.set(x, y, z);
   m.castShadow = true;
   m.receiveShadow = true;
-  return m;
-}
-
-function terrainMesh(): Mesh {
-  const nx = BOUNDS.x1 - BOUNDS.x0 + 1;
-  const nz = BOUNDS.z1 - BOUNDS.z0 + 1;
-  const positions = new Float32Array(nx * nz * 3);
-  for (let iz = 0; iz < nz; iz++) {
-    for (let ix = 0; ix < nx; ix++) {
-      const x = BOUNDS.x0 + ix;
-      const z = BOUNDS.z0 + iz;
-      const o = (iz * nx + ix) * 3;
-      positions[o] = x;
-      positions[o + 1] = terrainHeight(x, z);
-      positions[o + 2] = z;
-    }
-  }
-  const indices = new Uint32Array((nx - 1) * (nz - 1) * 6);
-  let k = 0;
-  for (let iz = 0; iz < nz - 1; iz++) {
-    for (let ix = 0; ix < nx - 1; ix++) {
-      const a = iz * nx + ix;
-      indices.set([a, a + nx, a + 1, a + 1, a + nx, a + nx + 1], k);
-      k += 6;
-    }
-  }
-  const g = new BufferGeometry();
-  g.setAttribute('position', new BufferAttribute(positions, 3));
-  g.setIndex(new BufferAttribute(indices, 1));
-  g.computeVertexNormals();
-  const m = new Mesh(g, inkMaterial({ albedo: 0.92, pattern: 'terrain', angle: 0.35, hatchStart: 0.62 }));
-  m.receiveShadow = true;
-  m.castShadow = true;
   return m;
 }
 
@@ -330,17 +298,19 @@ function mill(): MillParts {
 
 export interface Site {
   root: Group;
+  terrain: TerrainMeshes;
   cutaway: Group;
   wheelSpin: Group;
   spillSheet: Mesh;
 }
 
-export function buildSite(): Site {
+export function buildSite(field: TerrainField): Site {
   const root = new Group();
+  const terrain = new TerrainMeshes(field, inkMaterial({ albedo: 0.92, pattern: 'terrain', angle: 0.35, hatchStart: 0.62 }));
   const millParts = mill();
   const wheelGroup = wheel();
   const water = decorativeWater();
-  root.add(terrainMesh(), water.group, dam(), flume(), wheelGroup, millParts.group);
-  return { root, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet };
+  root.add(terrain.group, water.group, dam(), flume(), wheelGroup, millParts.group);
+  return { root, terrain, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet };
 }
 

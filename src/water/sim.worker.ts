@@ -4,12 +4,14 @@
 import { DAM_X, riverCenter } from '../scene/site';
 import type { FromWorker, SimStats, ToWorker } from './protocol';
 import { STATE_STRIDE } from './protocol';
-import { buildRiverSim } from './riverSim';
+import { buildRiverSim, structureOffset } from './riverSim';
 import type { ShallowWater } from './shallowWater';
 
 declare const self: DedicatedWorkerGlobalScope;
 
 let sim: ShallowWater | null = null;
+/** Bed height added by structures, kept so terrain edits don't erase them. */
+let offset: Float32Array | null = null;
 const vel = { u: 0, w: 0 };
 
 function post(msg: FromWorker, transfer: Transferable[] = []) {
@@ -34,13 +36,15 @@ function pack(out: Float32Array) {
         continue;
       }
       // Dry: borrow the highest wet neighbour's surface so the water mesh runs flat into
-      // the bank (the terrain hides the rest). No wet neighbour: mark as far-dry.
+      // the bank (the terrain hides the rest). No wet neighbour: mark as far-dry and sink the
+      // vertex under the ground; left at ground height, the water and terrain meshes nearly
+      // coincide along the shore and fight, which drew a sawtooth shoreline.
       let eta = -Infinity;
       if (i > 0 && depth[c - 1] > WET) eta = Math.max(eta, bed[c - 1] + depth[c - 1]);
       if (i < nx - 1 && depth[c + 1] > WET) eta = Math.max(eta, bed[c + 1] + depth[c + 1]);
       if (j > 0 && depth[c - nx] > WET) eta = Math.max(eta, bed[c - nx] + depth[c - nx]);
       if (j < nz - 1 && depth[c + nx] > WET) eta = Math.max(eta, bed[c + nx] + depth[c + nx]);
-      out[o] = eta > -Infinity ? eta : bed[c];
+      out[o] = eta > -Infinity ? eta : bed[c] - 0.5;
       out[o + 1] = eta > -Infinity ? 0 : -1;
       out[o + 2] = 0;
       out[o + 3] = 0;
@@ -60,7 +64,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   try {
     const msg = e.data;
     if (msg.type === 'init') {
-      sim = buildRiverSim({ dx: msg.dx, prefill: msg.prefill, discharge: msg.discharge });
+      sim = buildRiverSim({ dx: msg.grid.dx, prefill: msg.prefill, discharge: msg.discharge, terrain: { spec: msg.grid, heights: msg.heights } });
+      offset = structureOffset(msg.grid);
       post({
         type: 'ready',
         grid: { nx: sim.nx, nz: sim.nz, dx: sim.dx, x0: sim.x0, z0: sim.z0 },
@@ -69,6 +74,19 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       return;
     }
     if (!sim) throw new Error('worker not initialised');
+    if (msg.type === 'bed') {
+      const { i0, j0, i1, j1 } = msg.rect;
+      const w = i1 - i0;
+      for (let j = j0; j < j1; j++) {
+        for (let i = i0; i < i1; i++) {
+          const k = j * sim.nx + i;
+          // Depth is kept, so water stays on top of raised ground and a dug hole starts
+          // dry and fills from its neighbours: total water is conserved either way.
+          sim.bed[k] = msg.heights[(j - j0) * w + (i - i0)] + offset![k];
+        }
+      }
+      return;
+    }
     if (msg.type === 'discharge') {
       if (sim.inflow) sim.inflow.discharge = msg.value;
       return;

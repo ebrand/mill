@@ -1,10 +1,12 @@
 import { DataTexture, FloatType, LinearFilter, RGBAFormat } from 'three';
 import { RIVER_DISCHARGE } from '../scene/site';
+import type { Rect, TerrainField } from '../world/terrainField';
 import type { FromWorker, GridInfo, SimStats, ToWorker } from './protocol';
 import { STATE_STRIDE } from './protocol';
 
 export interface WaterClientOptions {
-  dx: number;
+  /** The terrain the river runs over; the sim grid matches its samples. */
+  terrain: TerrainField;
   prefill: boolean;
 }
 
@@ -40,7 +42,9 @@ export class WaterClient {
     worker.onerror = (e) => {
       this.error = e.message || 'water worker failed';
     };
-    this.send(worker, { type: 'init', dx: this.options.dx, prefill: this.options.prefill, discharge: this.discharge });
+    const t = this.options.terrain;
+    // Copied (not transferred): the main thread keeps editing its terrain.
+    this.send(worker, { type: 'init', prefill: this.options.prefill, discharge: this.discharge, grid: t.spec, heights: t.heights.slice() });
     return worker;
   }
 
@@ -99,6 +103,13 @@ export class WaterClient {
       this.owed = 0;
       this.request(seconds);
     }
+  }
+
+  /** Send edited terrain for a rectangle of samples to the sim. */
+  updateBed(rect: Rect) {
+    // No readiness check: messages queue in order behind 'init', so early edits still land.
+    const heights = this.options.terrain.extract(rect);
+    this.send(this.worker, { type: 'bed', rect, heights }, [heights.buffer]);
   }
 
   setDischarge(value: number) {

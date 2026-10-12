@@ -1,13 +1,16 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
-import { AmbientLight, DirectionalLight, NoToneMapping, type PerspectiveCamera } from 'three';
+import { AmbientLight, DirectionalLight, MOUSE, NoToneMapping, type PerspectiveCamera } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import type { WebGPURenderer } from 'three/webgpu';
+import { devExpose } from '../debug/devExpose';
 import { inkTime, lighting, toneGain, washShadows } from '../ink/materials';
 import { createInkPipeline } from '../ink/pipeline';
+import { BRUSH_RADIUS, EarthBrush, type Tool } from '../tools/earthBrush';
 import type { SimStats } from '../water/protocol';
 import { WaterClient } from '../water/WaterClient';
 import { createWaterSurface } from '../water/waterSurface';
+import { createSiteField } from '../world/siteField';
 import { buildSite } from './buildSite';
 import { MILL, WHEEL } from './site';
 
@@ -25,15 +28,19 @@ export interface WaterHud {
   speed: number;
   discharge: number;
   error: string | null;
+  earth: { tool: Tool; radius: number; cut: number; fill: number };
 }
 
-/** The pen-and-ink site with the simulated river (M0 scene + M1 water). */
-export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
+/** The pen-and-ink site with the simulated river and earthworks. */
+export function StyleTest({ onWater, tool = 'look' }: { onWater?: (hud: WaterHud) => void; tool?: Tool }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
   const water = useRef<WaterClient | null>(null);
+  const brush = useRef<EarthBrush | null>(null);
 
-  const site = useMemo(() => buildSite(), []);
+  // The one editable terrain: rendered, simulated over, and dug.
+  const field = useMemo(() => createSiteField(WATER_DX), []);
+  const site = useMemo(() => buildSite(field), [field]);
   const ink = useMemo(() => createInkPipeline(renderer, scene, camera), [renderer, scene, camera]);
 
   useEffect(() => {
@@ -69,7 +76,7 @@ export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
   // The water worker. Created in an effect (not useMemo) so StrictMode's double mount
   // terminates the extra worker instead of leaking it.
   useEffect(() => {
-    const client = new WaterClient({ dx: WATER_DX, prefill: true });
+    const client = new WaterClient({ terrain: field, prefill: true });
     water.current = client;
     let surface: ReturnType<typeof createWaterSurface> | null = null;
     let disposed = false;
@@ -77,7 +84,7 @@ export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
       if (disposed || !client.grid || !client.texture) return;
       surface = createWaterSurface(client.grid, client.texture);
       scene.add(surface.mesh);
-      if (import.meta.env.DEV) Object.assign((window as unknown as { __mill: object }).__mill ?? {}, { water: client, waterParams: surface.params });
+      devExpose({ water: client, waterParams: surface.params });
     });
 
     const onKey = (e: KeyboardEvent) => {
@@ -96,7 +103,36 @@ export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
       client.dispose();
       water.current = null;
     };
-  }, [scene]);
+  }, [scene, field]);
+
+  // Earthworks brush. Edits reach the water sim through the client, whichever is current.
+  useEffect(() => {
+    const b = new EarthBrush(field, site.terrain, renderer.domElement, (rect) => water.current?.updateBed(rect));
+    brush.current = b;
+    scene.add(b.ring);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === 'Comma') b.radius = Math.max(BRUSH_RADIUS.min, b.radius / 1.25);
+      if (e.code === 'Period') b.radius = Math.min(BRUSH_RADIUS.max, b.radius * 1.25);
+    };
+    window.addEventListener('keydown', onKey);
+    devExpose({ brush: b, field });
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      scene.remove(b.ring);
+      b.dispose();
+      brush.current = null;
+    };
+  }, [scene, renderer, field, site]);
+
+  // With a tool active, the left button works the ground; orbit moves to the right button.
+  useEffect(() => {
+    brush.current?.setTool(tool);
+    const controls = (camera.userData as { controls?: OrbitControls }).controls;
+    if (controls) {
+      controls.mouseButtons.LEFT = tool === 'look' ? MOUSE.ROTATE : (-1 as MOUSE);
+      controls.mouseButtons.RIGHT = tool === 'look' ? MOUSE.PAN : MOUSE.ROTATE;
+    }
+  }, [tool, camera]);
 
   useEffect(() => {
     const cam = camera as PerspectiveCamera;
@@ -120,9 +156,7 @@ export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
     };
     window.addEventListener('keydown', onKey);
 
-    if (import.meta.env.DEV) {
-      (window as unknown as Record<string, unknown>).__mill = { camera: cam, controls, site, ink, tone: toneGain, washShadows, MILL, WHEEL };
-    }
+    devExpose({ camera: cam, controls, site, ink, tone: toneGain, washShadows, MILL, WHEEL });
     (camera.userData as { controls?: OrbitControls }).controls = controls;
     return () => {
       window.removeEventListener('keydown', onKey);
@@ -135,6 +169,7 @@ export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
   useFrame((_, delta) => {
     inkTime.value += delta;
     site.wheelSpin.rotation.z += delta * 0.9;
+    brush.current?.update(delta, camera);
     const client = water.current;
     if (client) {
       client.update(delta);
@@ -142,7 +177,14 @@ export function StyleTest({ onWater }: { onWater?: (hud: WaterHud) => void }) {
       hudTimer.current += delta;
       if (onWater && hudTimer.current > 0.25) {
         hudTimer.current = 0;
-        onWater({ stats: client.stats, speed: client.speed, discharge: client.discharge, error: client.error });
+        const b = brush.current;
+        onWater({
+          stats: client.stats,
+          speed: client.speed,
+          discharge: client.discharge,
+          error: client.error,
+          earth: { tool: b?.tool ?? 'look', radius: b?.radius ?? 0, cut: b?.cut ?? 0, fill: b?.fill ?? 0 },
+        });
       }
     }
     (camera.userData as { controls?: OrbitControls }).controls?.update();

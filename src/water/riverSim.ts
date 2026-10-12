@@ -14,37 +14,49 @@ import {
   riverCenter,
   SPILLWAY_CREST,
   SPILLWAY_HALF_WIDTH,
-  terrainHeight,
 } from '../scene/site';
+import { createSiteField } from '../world/siteField';
+import type { FieldSpec } from '../world/terrainField';
 import { ShallowWater } from './shallowWater';
-
-export const SITE_BOUNDS = { x0: -130, x1: 130, z0: -70, z1: 90 };
 /** The dam's abutments run this far beyond the spillway on each side (matches buildSite). */
 const ABUTMENT_LENGTH = 26;
 
 export interface RiverSimOptions {
-  /** Cell size in meters. */
+  /** Cell size in meters (used when no terrain is given). */
   dx: number;
   discharge?: number;
   /** Start with water near steady state (true) or dry (false). */
   prefill?: boolean;
+  /** Terrain to build on; defaults to the generated site at `dx`. */
+  terrain?: { spec: FieldSpec; heights: Float32Array };
 }
 
-export function buildRiverSim({ dx, discharge = RIVER_DISCHARGE, prefill = true }: RiverSimOptions): ShallowWater {
-  const { x0, x1, z0, z1 } = SITE_BOUNDS;
-  const nx = Math.round((x1 - x0) / dx);
-  const nz = Math.round((z1 - z0) / dx);
-  const bed = new Float64Array(nx * nz);
-  for (let j = 0; j < nz; j++) {
-    const z = z0 + (j + 0.5) * dx;
-    for (let i = 0; i < nx; i++) {
-      const x = x0 + (i + 0.5) * dx;
-      let h = terrainHeight(x, z);
-      // The mill is a solid block as far as water is concerned.
-      if (x > MILL.x0 && x < MILL.x1 && z > MILL.z0 && z < MILL.z1) h = Math.max(h, MILL.base + 3);
-      bed[j * nx + i] = h;
+/**
+ * Extra bed height from solid structures (the mill), added on top of the terrain. Kept
+ * separate so terrain edits can be applied without losing it.
+ */
+export function structureOffset(spec: FieldSpec): Float32Array {
+  const out = new Float32Array(spec.nx * spec.nz);
+  for (let j = 0; j < spec.nz; j++) {
+    const z = spec.z0 + (j + 0.5) * spec.dx;
+    for (let i = 0; i < spec.nx; i++) {
+      const x = spec.x0 + (i + 0.5) * spec.dx;
+      if (x > MILL.x0 && x < MILL.x1 && z > MILL.z0 && z < MILL.z1) out[j * spec.nx + i] = 20;
     }
   }
+  return out;
+}
+
+export function buildRiverSim({ dx, discharge = RIVER_DISCHARGE, prefill = true, terrain }: RiverSimOptions): ShallowWater {
+  const t = terrain ?? (() => {
+    const f = createSiteField(dx);
+    return { spec: f.spec, heights: f.heights };
+  })();
+  const { nx, nz, x0, z0 } = t.spec;
+  dx = t.spec.dx;
+  const offset = structureOffset(t.spec);
+  const bed = new Float64Array(nx * nz);
+  for (let k = 0; k < bed.length; k++) bed[k] = t.heights[k] + offset[k];
   const sim = new ShallowWater({ nx, nz, dx, x0, z0 }, bed);
 
   // The dam: a thin wall on the x-edge at DAM_X. Spillway in the channel, abutments (which
