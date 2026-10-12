@@ -38,15 +38,11 @@ describe('style-test site layout', () => {
     expect(terrainHeight(-2, riverCenter(-2) - 40)).toBeGreaterThan(DAM_TOP);
   });
 
-  it('upstream river rises out of the pond continuously', () => {
-    let prev = upstreamWaterLevel(0);
-    for (let x = -1; x >= -130; x--) {
-      const level = upstreamWaterLevel(x);
-      expect(level).toBeGreaterThanOrEqual(prev);
-      expect(level - prev).toBeLessThan(0.05);
-      prev = level;
-    }
-    expect(riverBed(-130) + 1).toBeCloseTo(upstreamWaterLevel(-130), 5);
+  it('at a lowland slope the millpond backs up through the whole upstream reach', () => {
+    // The river bed at the map's upstream edge is still below pond level, so the sim's
+    // inflow enters the pond directly. (Real millponds often stretched a long way.)
+    expect(riverBed(-130)).toBeLessThan(POND_LEVEL);
+    expect(upstreamWaterLevel(-130)).toBe(POND_LEVEL);
   });
 
   it('the mill stands on dry ground above the river', () => {

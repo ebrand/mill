@@ -11,8 +11,9 @@ import {
   Shape,
   TorusGeometry,
 } from 'three';
-import { float, positionWorld, sin, smoothstep, vec2 } from 'three/tsl';
+import { float, positionWorld, vec2 } from 'three/tsl';
 import { fallingWaterMaterial, inkMaterial, waterMaterial } from '../ink/materials';
+import { SITE_BOUNDS as BOUNDS } from '../water/riverSim';
 import {
   DAM_TOP,
   DAM_X,
@@ -24,11 +25,9 @@ import {
   SPILLWAY_CREST,
   SPILLWAY_HALF_WIDTH,
   terrainHeight,
-  upstreamWaterLevel,
   WHEEL,
 } from './site';
 
-const BOUNDS = { x0: -130, x1: 130, z0: -70, z1: 90 };
 
 function box(w: number, h: number, d: number, material: Material, x: number, y: number, z: number): Mesh {
   const m = new Mesh(new BoxGeometry(w, h, d), material);
@@ -94,18 +93,13 @@ function quad(corners: [number, number, number][], material: Material): Mesh {
   return new Mesh(g, material);
 }
 
-function riverFlowCoord() {
-  const x = positionWorld.x;
-  // Matches riverCenter() in site.ts.
-  return vec2(x, positionWorld.z.sub(sin(x.mul(0.025)).mul(6)));
-}
-
-function water(): Group {
+/**
+ * Water that isn't simulated: the flume (until head gates and races arrive in M3) and the
+ * falling sheets. River and pond water come from the sim (see water/waterSurface.ts).
+ */
+function decorativeWater(): { group: Group; spillSheet: Mesh } {
   const group = new Group();
-  const upstreamSpeed = smoothstep(-78, -88, positionWorld.x);
   group.add(
-    waterStrip(BOUNDS.x0, DAM_X + 0.2, BOUNDS.z0, BOUNDS.z1, upstreamWaterLevel, waterMaterial({ speed: upstreamSpeed, flowCoord: riverFlowCoord() })),
-    waterStrip(DAM_X, BOUNDS.x1, BOUNDS.z0, BOUNDS.z1, downstreamWaterLevel, waterMaterial({ speed: float(1), flowCoord: riverFlowCoord() })),
     waterStrip(
       FLUME.x0,
       FLUME.x1,
@@ -116,20 +110,22 @@ function water(): Group {
     ),
   );
 
-  // Sheet over the spillway, and the jet from the flume onto the wheel.
+  // Sheet over the spillway (shown only while the sim says water is going over), and the
+  // jet from the flume onto the wheel.
   const c = riverCenter(DAM_X);
   const falling = fallingWaterMaterial();
   const bottom = downstreamWaterLevel(DAM_X + 1.8);
+  const spillSheet = quad(
+    [
+      [DAM_X + 0.5, SPILLWAY_CREST + 0.15, c - SPILLWAY_HALF_WIDTH],
+      [DAM_X + 0.5, SPILLWAY_CREST + 0.15, c + SPILLWAY_HALF_WIDTH],
+      [DAM_X + 1.8, bottom, c + SPILLWAY_HALF_WIDTH],
+      [DAM_X + 1.8, bottom, c - SPILLWAY_HALF_WIDTH],
+    ],
+    falling,
+  );
   group.add(
-    quad(
-      [
-        [DAM_X + 0.5, SPILLWAY_CREST + 0.15, c - SPILLWAY_HALF_WIDTH],
-        [DAM_X + 0.5, SPILLWAY_CREST + 0.15, c + SPILLWAY_HALF_WIDTH],
-        [DAM_X + 1.8, bottom, c + SPILLWAY_HALF_WIDTH],
-        [DAM_X + 1.8, bottom, c - SPILLWAY_HALF_WIDTH],
-      ],
-      falling,
-    ),
+    spillSheet,
     quad(
       [
         [FLUME.x1, FLUME.water, FLUME.z - 1],
@@ -140,7 +136,7 @@ function water(): Group {
       falling,
     ),
   );
-  return group;
+  return { group, spillSheet };
 }
 
 function dam(): Group {
@@ -336,13 +332,15 @@ export interface Site {
   root: Group;
   cutaway: Group;
   wheelSpin: Group;
+  spillSheet: Mesh;
 }
 
 export function buildSite(): Site {
   const root = new Group();
   const millParts = mill();
   const wheelGroup = wheel();
-  root.add(terrainMesh(), water(), dam(), flume(), wheelGroup, millParts.group);
-  return { root, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group };
+  const water = decorativeWater();
+  root.add(terrainMesh(), water.group, dam(), flume(), wheelGroup, millParts.group);
+  return { root, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet };
 }
 

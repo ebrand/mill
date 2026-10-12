@@ -2,12 +2,17 @@
 // mill with a breastshot wheel fed by a timber flume. Pure functions so tests can check the
 // water actually sits where the drawing says it does.
 
-/** River falls 3 cm per meter toward +X. */
-export const RIVER_SLOPE = 0.03;
+/**
+ * River falls 8 mm per meter toward +X: a lowland mill river. (M0 used 3 %, a torrent with
+ * supercritical flow that the water solver isn't meant for.)
+ */
+export const RIVER_SLOPE = 0.008;
+/** Mean river discharge entering upstream, m^3/s. */
+export const RIVER_DISCHARGE = 12;
 export const CHANNEL_HALF_WIDTH = 6;
 export const CHANNEL_DEPTH = 1.8;
-/** River water stands this far above the bed. */
-export const RIVER_DEPTH = 1.0;
+/** Approximate river depth at RIVER_DISCHARGE (Manning normal depth); the sim decides the real one. */
+export const RIVER_DEPTH = 0.6;
 export const POND_LEVEL = 1.6;
 export const DAM_X = 0;
 export const SPILLWAY_HALF_WIDTH = 8;

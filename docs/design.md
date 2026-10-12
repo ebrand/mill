@@ -150,6 +150,14 @@ Known pen-and-ink rendering problems to solve early:
 - **Readouts that matter at a glance:** head (ft), flow (cfs), power (hp), pond level against the spillway crest, output per day.
 - Tool previews before commit: water level a channel would hold, the head a wheel pit would see, cut and fill volume.
 
+### M1 decisions (water)
+
+- **Solver:** local-inertial shallow water (Bates et al. 2010) on a staggered grid with Manning friction, outflow limiting, and a Froude limiter (flow capped at critical). Exact mass conservation; a lake at rest stays at rest.
+- **Dams and spillways are weir edges,** not raised terrain. Terrain steps can't reproduce weir flow in this model (measured effective C ≈ 2.9 against a real 1.7). Weir edges use Q = C·L·H^1.5 with Villemonte submergence, and a dam is a thin wall between pond and tailwater cells.
+- **Fixed whole steps:** `advance()` never takes a short leftover step; it carries the remainder. Leftover steps made a deep pond swing by 5 m. There's a regression test.
+- **River slope 0.8 %,** down from M0's 3 %, so flow stays subcritical. At 12 m³/s the pond backs up past the upstream edge of the map.
+- **Two clocks, for now:** the hydraulic clock runs with speed controls (pause, 1×, 4×, 16×), and the game starts pre-filled near steady state. Filling the pond from dry takes about 19 simulated minutes, under a minute of wall time at 16×. Seasonal calendar compression is still an M5 decision.
+
 ## Architecture
 
 | Layer | Owns | Runs |
@@ -161,7 +169,7 @@ Known pen-and-ink rendering problems to solve early:
 | Render | Terrain, water, buildings, ink post-processing | three.js WebGPU + TSL |
 | UI | Tools, ledger, readouts | React (R3F for scene composition only) |
 
-Data between worker and main thread: SharedArrayBuffer (needs COOP/COEP headers on the dev server and the host) or transferable copies per frame. Decide in M1.
+Data between worker and main thread (**decided in M1**): two transferable buffers alternate between worker and main thread, zero-copy, with at most one request in flight. No SharedArrayBuffer, so no COOP/COEP headers are needed anywhere. The main thread copies each state into a float texture (about 2.7 MB at 0.5 m cells) and hands the buffer straight back.
 
 **Carried over from the prototype:** project setup (Vite/React/TS, pinned versions, `.npmrc`), WebGPU/TSL renderer setup, fixed-timestep loop, test setup, and the CPU-vs-GPU check pattern (useful for verifying the LIC flow lines against sim velocities).
 
@@ -173,6 +181,7 @@ Each ends with something you can see or play, and its tests passing. **M0 and M3
 
 0. **M0: style test.** A static scene (sloped terrain, a mill building, a dam, still and flowing water using a fake velocity field) rendered in pen and ink, with outlines, hatching, paper and one cutaway. Orbit the camera and judge coherence. *Exit: you like how it looks and it doesn't swim.* If it can't look good, decide on a fallback style before building systems.
 1. **M1: the river.** Valley generation, shallow-water worker with inflow/outflow, steady river, ink water with LIC flow lines. Decide data transfer and the two-clock approach. Tests: mass conservation, steady flow, stability.
+   *Status:* sim, worker, LIC water, weirs, speed controls done. Valley generation is still the hand-shaped M0 valley (not seeded).
 2. **M2: earthworks.** Channel, embankment and brush tools with previews; cut and fill accounting; water responds live. Pond fills to a spillway. Tests: tool geometry, conservation with structures.
 3. **M3: first mill.** Wheel pit with head gate (orifice link), one wheel type, line shaft, sawmill, lumber output, hp readout. *Exit: is siting and building the first mill fun?* Rethink before going on if not.
 4. **M4: drivetrain and production.** Component catalog, belts and clutches, proportional slowdown, cotton chain, market and ledger.
@@ -184,7 +193,7 @@ Each ends with something you can see or play, and its tests passing. **M0 and M3
 ## Risks
 
 - **Pen-and-ink quality** (highest): good hand-drawn rendering takes a lot of art direction. Coherence under camera motion is hard. M0 exists to find out early.
-- **Sim resolution vs. channel width:** historical races were often a few meters wide. At 1 m cells a 3 m race is 3 cells, which is too coarse to behave well. 0.5 m cells on a 300 × 150 m reach is about 180k cells. That's probably too slow to run every frame in plain JS at 60 Hz, so it would need a 30 Hz sim, WASM/SIMD, or a 1D channel model for races coupled to the 2D river. Profile in M1.
+- **Sim resolution vs. channel width** (*profiled in M1, resolved for now*): the solver costs about 11.5 ns per cell per step in plain JS. At 0.5 m cells the 260 × 160 m site is 166k cells, 1.9 ms per step, up to about 32× real time on one worker core. A 3 m headrace gets 6 cells. Bigger maps or regions will need the numbers rechecked.
 - **Two clocks:** compressed calendar time against a real-physics hydraulic clock, especially for pond filling. Needs a decision, not a hope.
 - **Earthwork UX:** path tools on 3D terrain can feel fiddly. Prototype the channel tool early, even before M2 if needed.
 - **Realism vs. fun:** the hydraulics should be true, but the player must read results at a glance. Every system needs a clear readout.

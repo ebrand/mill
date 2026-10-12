@@ -1,0 +1,124 @@
+import { DataTexture, FloatType, LinearFilter, RGBAFormat } from 'three';
+import { RIVER_DISCHARGE } from '../scene/site';
+import type { FromWorker, GridInfo, SimStats, ToWorker } from './protocol';
+import { STATE_STRIDE } from './protocol';
+
+export interface WaterClientOptions {
+  dx: number;
+  prefill: boolean;
+}
+
+/**
+ * Main-thread side of the water sim: owns the worker, the two state buffers it alternates
+ * between, and the GPU texture the water surface reads.
+ */
+export class WaterClient {
+  grid: GridInfo | null = null;
+  texture: DataTexture | null = null;
+  stats: SimStats | null = null;
+  /** Simulated seconds per real second. 0 pauses. */
+  speed = 1;
+  discharge = RIVER_DISCHARGE;
+  error: string | null = null;
+
+  private worker: Worker;
+  private spare: ArrayBuffer | null = null;
+  private inFlight = false;
+  /** Simulated time owed to the worker while a request was in flight. */
+  private owed = 0;
+  private readyResolve!: () => void;
+  readonly ready: Promise<void>;
+
+  constructor(private readonly options: WaterClientOptions) {
+    this.ready = new Promise((r) => (this.readyResolve = r));
+    this.worker = this.start();
+  }
+
+  private start(): Worker {
+    const worker = new Worker(new URL('./sim.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<FromWorker>) => this.onMessage(e.data);
+    worker.onerror = (e) => {
+      this.error = e.message || 'water worker failed';
+    };
+    this.send(worker, { type: 'init', dx: this.options.dx, prefill: this.options.prefill, discharge: this.discharge });
+    return worker;
+  }
+
+  private send(worker: Worker, msg: ToWorker, transfer: Transferable[] = []) {
+    worker.postMessage(msg, transfer);
+  }
+
+  private onMessage(msg: FromWorker) {
+    if (msg.type === 'error') {
+      this.error = msg.message;
+      console.error('[water]', msg.message);
+      return;
+    }
+    if (msg.type === 'ready') {
+      this.grid = msg.grid;
+      const size = msg.grid.nx * msg.grid.nz * STATE_STRIDE;
+      if (!this.texture || this.texture.image.width !== msg.grid.nx) {
+        const data = new Float32Array(size);
+        const tex = new DataTexture(data, msg.grid.nx, msg.grid.nz, RGBAFormat, FloatType);
+        tex.magFilter = LinearFilter;
+        tex.minFilter = LinearFilter;
+        tex.needsUpdate = true;
+        this.texture = tex;
+      }
+      this.spare = new ArrayBuffer(size * 4);
+      this.inFlight = false;
+      this.owed = 0;
+      // Ask for an initial state straight away so there's water before time moves.
+      this.request(0);
+      this.readyResolve();
+      return;
+    }
+    if (msg.type === 'state') {
+      (this.texture!.image.data as Float32Array).set(new Float32Array(msg.buffer));
+      this.texture!.needsUpdate = true;
+      this.stats = msg.stats;
+      this.spare = msg.buffer;
+      this.inFlight = false;
+    }
+  }
+
+  private request(seconds: number) {
+    if (!this.spare) return;
+    const buffer = this.spare;
+    this.spare = null;
+    this.inFlight = true;
+    this.send(this.worker, { type: 'step', seconds, buffer }, [buffer]);
+  }
+
+  /** Call once per frame with real elapsed seconds. */
+  update(delta: number) {
+    if (!this.grid) return;
+    this.owed += Math.min(delta, 0.25) * this.speed;
+    if (!this.inFlight) {
+      const seconds = this.owed;
+      this.owed = 0;
+      this.request(seconds);
+    }
+  }
+
+  setDischarge(value: number) {
+    this.discharge = Math.max(0, value);
+    this.send(this.worker, { type: 'discharge', value: this.discharge });
+  }
+
+  /** Restart the sim, either pre-filled or dry. */
+  reset(prefill: boolean) {
+    this.worker.terminate();
+    this.grid = null;
+    this.stats = null;
+    this.spare = null;
+    this.inFlight = false;
+    this.options.prefill = prefill;
+    this.worker = this.start();
+  }
+
+  dispose() {
+    this.worker.terminate();
+    this.texture?.dispose();
+  }
+}
