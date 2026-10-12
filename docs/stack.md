@@ -50,4 +50,6 @@ Perceived realism comes mostly from shading: Fresnel, refraction, depth-based ab
 3. Shallow water equations, only if gameplay needs water that flows.
 4. Particle set pieces last, as polish.
 
-**Open decision:** does water need to flow and change level as part of gameplay (flooding, draining, rivers between islands), or is it a dynamic surface to travel across? If the latter, steps 1 and 2 cover nearly everything.
+**Decided (see [design.md](design.md)):** the game is now a river mill simulation. Water flows and changes level; the water sim moves to a CPU Web Worker on a square grid, and the ocean layers (Gerstner, FFT) and Rapier are dropped.
+
+**Original open decision:** does water need to flow and change level as part of gameplay (flooding, draining, rivers between islands), or is it a dynamic surface to travel across? If the latter, steps 1 and 2 cover nearly everything.
