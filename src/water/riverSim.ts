@@ -7,13 +7,14 @@ import {
   DAM_X,
   MILL,
   POND_LEVEL,
-  RIVER_DEPTH,
+  STEADY_RIVER_STAGE,
   RIVER_DISCHARGE,
   RIVER_SLOPE,
   riverBed,
   riverCenter,
   SPILLWAY_CREST,
   SPILLWAY_HALF_WIDTH,
+  type SiteStart,
 } from '../scene/site';
 import { createSiteField } from '../world/siteField';
 import type { FieldSpec } from '../world/terrainField';
@@ -29,14 +30,17 @@ export interface RiverSimOptions {
   prefill?: boolean;
   /** Terrain to build on; defaults to the generated site at `dx`. */
   terrain?: { spec: FieldSpec; heights: Float32Array };
+  /** 'oldMill' (default) includes the old dam and mill; 'valley' is the untouched river. */
+  start?: SiteStart;
 }
 
 /**
  * Extra bed height from solid structures (the mill), added on top of the terrain. Kept
  * separate so terrain edits can be applied without losing it.
  */
-export function structureOffset(spec: FieldSpec): Float32Array {
+export function structureOffset(spec: FieldSpec, start: SiteStart = 'oldMill'): Float32Array {
   const out = new Float32Array(spec.nx * spec.nz);
+  if (start !== 'oldMill') return out;
   for (let j = 0; j < spec.nz; j++) {
     const z = spec.z0 + (j + 0.5) * spec.dx;
     for (let i = 0; i < spec.nx; i++) {
@@ -47,14 +51,15 @@ export function structureOffset(spec: FieldSpec): Float32Array {
   return out;
 }
 
-export function buildRiverSim({ dx, discharge = RIVER_DISCHARGE, prefill = true, terrain }: RiverSimOptions): ShallowWater {
+export function buildRiverSim({ dx, discharge = RIVER_DISCHARGE, prefill = true, terrain, start = 'oldMill' }: RiverSimOptions): ShallowWater {
+  const works = start === 'oldMill';
   const t = terrain ?? (() => {
-    const f = createSiteField(dx);
+    const f = createSiteField(dx, start);
     return { spec: f.spec, heights: f.heights };
   })();
   const { nx, nz, x0, z0 } = t.spec;
   dx = t.spec.dx;
-  const offset = structureOffset(t.spec);
+  const offset = structureOffset(t.spec, start);
   const bed = new Float64Array(nx * nz);
   for (let k = 0; k < bed.length; k++) bed[k] = t.heights[k] + offset[k];
   const sim = new ShallowWater({ nx, nz, dx, x0, z0 }, bed);
@@ -63,7 +68,7 @@ export function buildRiverSim({ dx, discharge = RIVER_DISCHARGE, prefill = true,
   // only pass water if overtopped) out to the banks.
   const damEdge = Math.round((DAM_X - x0) / dx);
   const c = riverCenter(DAM_X);
-  for (let j = 0; j < nz; j++) {
+  for (let j = 0; works && j < nz; j++) {
     const dz = Math.abs(z0 + (j + 0.5) * dx - c);
     if (dz < SPILLWAY_HALF_WIDTH) {
       sim.addWeir({ axis: 'x', edge: j * (nx + 1) + damEdge, crest: SPILLWAY_CREST, coefficient: 1.7 });
@@ -85,7 +90,8 @@ export function buildRiverSim({ dx, discharge = RIVER_DISCHARGE, prefill = true,
     for (let j = 0; j < nz; j++) {
       for (let i = 0; i < nx; i++) {
         const x = x0 + (i + 0.5) * dx;
-        const target = x < DAM_X ? pond : riverBed(x) + RIVER_DEPTH;
+        // The untouched valley is just the river, already at its steady level.
+        const target = works && x < DAM_X ? pond : riverBed(x) + STEADY_RIVER_STAGE;
         const k = j * nx + i;
         sim.depth[k] = Math.max(0, target - bed[k]);
       }

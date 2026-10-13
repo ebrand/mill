@@ -1,3 +1,4 @@
+import type { SiteStart } from '../scene/site';
 import type { Link } from './shallowWater';
 
 // Messages between the main thread and the water worker. State buffers are transferred
@@ -52,6 +53,8 @@ export type ToWorker =
   | {
       type: 'init';
       prefill: boolean;
+      /** Which start: the old works (dam weirs, mill) exist only in 'oldMill'. */
+      start: SiteStart;
       discharge: number;
       grid: GridInfo;
       heights: Float32Array;

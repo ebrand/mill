@@ -23,6 +23,7 @@ import {
   MILL,
   riverBed,
   riverCenter,
+  type SiteStart,
   SPILLWAY_CREST,
   SPILLWAY_HALF_WIDTH,
   terrainHeight,
@@ -324,9 +325,8 @@ function mill(): MillParts {
   return { group, cutaway };
 }
 
-export interface Site {
-  root: Group;
-  terrain: TerrainMeshes;
+/** The old mill demo's works: models only, present for that start. */
+export interface OldWorks {
   cutaway: Group;
   wheelSpin: Group;
   spillSheet: Mesh;
@@ -334,13 +334,26 @@ export interface Site {
   flumeWater: Group;
 }
 
-export function buildSite(field: TerrainField): Site {
+export interface Site {
+  root: Group;
+  terrain: TerrainMeshes;
+  /** The old dam, mill, flume and wheel; null in the untouched valley. */
+  oldWorks: OldWorks | null;
+}
+
+export function buildSite(field: TerrainField, start: SiteStart = 'oldMill'): Site {
   const root = new Group();
   const terrain = new TerrainMeshes(field, inkMaterial({ albedo: 0.92, pattern: 'terrain', angle: 0.35, hatchStart: 0.62 }));
+  root.add(terrain.group);
+  if (start !== 'oldMill') return { root, terrain, oldWorks: null };
   const millParts = mill();
   const wheelGroup = wheel();
   const water = decorativeWater();
-  root.add(terrain.group, water.group, dam(), flume(), wheelGroup, millParts.group);
-  return { root, terrain, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet, flumeWater: water.flumeWater };
+  root.add(water.group, dam(), flume(), wheelGroup, millParts.group);
+  return {
+    root,
+    terrain,
+    oldWorks: { cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet, flumeWater: water.flumeWater },
+  };
 }
 

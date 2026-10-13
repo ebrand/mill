@@ -1,5 +1,9 @@
 import { useSyncExternalStore } from 'react';
+import type { ConstructionController } from '../build/constructionController';
+import { LUMBER_PRICE } from '../build/constructionController';
 import type { StructuresController, StructureView } from '../mill/structuresController';
+import { WORKING_HOURS } from '../mill/structuresController';
+import { formatDollars } from '../plan/costs';
 import { CFS_PER_M3S, FT_PER_M, SASH_SAW } from '../mill/wheel';
 import { INK } from './drawing';
 
@@ -55,8 +59,18 @@ function Item({ v, controller }: { v: StructureView; controller: StructuresContr
   );
 }
 
-export function StructuresPanel({ controller }: { controller: StructuresController }) {
+function Income({ construction, perDay }: { construction: ConstructionController; perDay: number }) {
+  const c = useSyncExternalStore(construction.subscribe, construction.getSnapshot);
+  return (
+    <div>
+      Lumber at ${LUMBER_PRICE} a thousand: {formatDollars(perDay)} a day · {formatDollars(c.income)} earned
+    </div>
+  );
+}
+
+export function StructuresPanel({ controller, construction }: { controller: StructuresController; construction?: ConstructionController }) {
   const s = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const bfPerDay = s.structures.reduce((a, v) => a + v.perHour * WORKING_HOURS, 0);
   return (
     <div
       style={{
@@ -79,6 +93,7 @@ export function StructuresPanel({ controller }: { controller: StructuresControll
       <div>
         {s.totalHp.toFixed(0)} hp at the wheels · {Math.floor(s.totalLumber).toLocaleString()} board feet cut
       </div>
+      {construction && <Income construction={construction} perDay={(bfPerDay / 1000) * LUMBER_PRICE} />}
       {s.structures.map((v) => (
         <Item key={v.id} v={v} controller={controller} />
       ))}

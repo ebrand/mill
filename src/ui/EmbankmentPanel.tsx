@@ -3,7 +3,7 @@ import type { PlanBook } from '../plan/planBook';
 import type { EmbankmentController } from '../tools/embankmentTool';
 import { FT, Field, INK, Section, YD3 } from './drawing';
 
-export function EmbankmentPanel({ controller, plans }: { controller: EmbankmentController; plans?: PlanBook }) {
+export function EmbankmentPanel({ controller, plans, sandbox = true }: { controller: EmbankmentController; plans?: PlanBook; sandbox?: boolean }) {
   const s = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const p = s.params;
   return (
@@ -71,9 +71,11 @@ export function EmbankmentPanel({ controller, plans }: { controller: EmbankmentC
             Add to plan
           </button>
         )}
-        <button disabled={s.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Build it now">
-          Build now
-        </button>
+        {sandbox && (
+          <button disabled={s.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Build it now">
+            Build now
+          </button>
+        )}
         <button disabled={s.points === 0} onClick={() => controller.clear()} style={{ font: 'inherit' }}>
           Clear
         </button>

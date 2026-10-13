@@ -95,6 +95,8 @@ function kindName(input: PlanInput): string {
 
 export interface PlanEnv {
   field: TerrainField;
+  /** Names already in use elsewhere (jobs under way, structures), so new items don't repeat them. */
+  usedLabels?: () => string[];
   /** Build one item now; return false if it couldn't be built. */
   build: (item: PlanItem) => boolean;
 }
@@ -120,7 +122,9 @@ export class PlanBook {
     if (!input || !this.env) return null;
     this.counter++;
     const name = kindName(input);
-    const n = (this.perKind.get(name) ?? 0) + 1;
+    const used = new Set([...this.items.map((i) => i.label), ...(this.env.usedLabels?.() ?? [])]);
+    let n = (this.perKind.get(name) ?? 0) + 1;
+    while (used.has(`${name} ${n}`)) n++;
     this.perKind.set(name, n);
     const item: PlanItem = { id: `plan-${Date.now().toString(36)}-${this.counter}`, label: `${name} ${n}`, input, cost: estimate(this.env.field, input) };
     this.items = [...this.items, item];

@@ -3,7 +3,9 @@
 // binary (no base64, no 5 MB localStorage ceiling).
 
 import type { Structure } from '../mill/structures';
+import type { SiteStart } from '../scene/site';
 import type { PlanItem } from '../plan/planBook';
+import type { ConstructionSave } from '../build/constructionController';
 import type { FieldSpec, TerrainField } from '../world/terrainField';
 
 export const SAVE_VERSION = 1;
@@ -11,6 +13,8 @@ export const SAVE_VERSION = 1;
 export interface SaveData {
   version: number;
   savedAt: number;
+  /** Which start the game began from; absent in older saves (which were all the old mill demo). */
+  start?: SiteStart;
   spec: FieldSpec;
   heights: Float32Array;
   material: Uint8Array;
@@ -26,6 +30,8 @@ export interface SaveData {
   structures?: Structure[];
   /** The works plan: laid out but not built (saves from M4 on). */
   plans?: PlanItem[];
+  /** Calendar, money, crews and works under construction (saves from M4 on). */
+  construction?: ConstructionSave;
 }
 
 /** Why a save can't be loaded into this field, or null if it can. */

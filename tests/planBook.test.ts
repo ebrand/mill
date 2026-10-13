@@ -62,6 +62,9 @@ describe('works plan', () => {
     // Numbering is per kind and continues past restored items.
     expect(book.add({ kind: 'structure', structure: wheel })!.label).toBe('Wheel 1');
     expect(fresh.add({ kind: 'channel', plan: race })!.label).toBe('Race 3');
+    // Names already used by jobs or structures aren't reused.
+    fresh.env = { ...book.env!, usedLabels: () => ['Race 4', 'Race 5'] };
+    expect(fresh.add({ kind: 'channel', plan: race })!.label).toBe('Race 6');
   });
 
   it('draws ghosts: two edges for races and banks, ends and pit outline for a wheel', () => {

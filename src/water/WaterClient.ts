@@ -1,5 +1,5 @@
 import { DataTexture, FloatType, LinearFilter, RGBAFormat } from 'three';
-import { RIVER_DISCHARGE } from '../scene/site';
+import { RIVER_DISCHARGE, type SiteStart } from '../scene/site';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { FromWorker, GridInfo, SimStats, ToWorker } from './protocol';
 import type { Link } from './shallowWater';
@@ -9,6 +9,8 @@ export interface WaterClientOptions {
   /** The terrain the river runs over; the sim grid matches its samples. */
   terrain: TerrainField;
   prefill: boolean;
+  /** Which start the site is (the old dam and mill exist in the sim only for 'oldMill'). */
+  start: SiteStart;
   /** Start from saved water instead (see saveGame.ts). */
   depth?: Float32Array;
   time?: number;
@@ -52,6 +54,7 @@ export class WaterClient {
     this.send(worker, {
       type: 'init',
       prefill: o.prefill,
+      start: o.start,
       discharge: this.discharge,
       grid: t.spec,
       heights: t.heights.slice(),

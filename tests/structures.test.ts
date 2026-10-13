@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cellsInDisk, type Structure, structureLink, wheelHead } from '../src/mill/structures';
-import { StructuresController } from '../src/mill/structuresController';
+import { StructuresController, WORKING_HOURS } from '../src/mill/structuresController';
 import { BREASTSHOT, runMill, SASH_SAW, wheelPower } from '../src/mill/wheel';
 import type { SimStats } from '../src/water/protocol';
 
@@ -64,18 +64,20 @@ describe('StructuresController', () => {
     expect(c.structures).toHaveLength(1);
   });
 
-  it('computes each wheel’s power from its link and integrates lumber over sim time', () => {
+  it('computes each wheel’s power from its link and credits lumber per working day', () => {
     const c = new StructuresController();
     c.restore([wheel('w1')]);
     const link = { id: 'w1', discharge: 1.2, etaFrom: 4, etaTo: 1 };
-    // Half an hour in one-minute updates, as the game feeds them (frames are seconds apart).
-    for (let t = 100; t <= 100 + 1800; t += 60) c.update(stats(t, [link]), t * 10);
+    c.update(stats(100, [link]), 1e9);
     const v = c.getSnapshot().structures[0];
     const expected = runMill(wheelPower(BREASTSHOT, 1.2, wheelHead(4, 1)), SASH_SAW);
     expect(v.wheelHp).toBeCloseTo(expected.wheelHp, 6);
-    expect(v.lumber).toBeCloseTo(expected.perHour / 2, 6);
-    // A jump (load/restart) credits nothing.
-    c.update(stats(100 + 1800 + 5000, [link]), 1e9);
-    expect(c.getSnapshot().structures[0].lumber).toBeCloseTo(expected.perHour / 2, 6);
+    // Water-clock updates alone cut nothing: output follows the calendar.
+    for (let t = 101; t < 200; t++) c.update(stats(t, [link]), 2e9 + t);
+    expect(c.getSnapshot().structures[0].lumber).toBe(0);
+    const cut = c.accrueDays(3);
+    expect(cut).toBeCloseTo(expected.perHour * WORKING_HOURS * 3, 6);
+    expect(c.getSnapshot().structures[0].lumber).toBeCloseTo(cut, 6);
+    expect(c.getSnapshot().totalLumber).toBeCloseTo(cut, 6);
   });
 });

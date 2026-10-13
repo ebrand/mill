@@ -17,6 +17,7 @@ import type { GameActions } from '../game/actions';
 import type { PlacementController } from '../mill/placement';
 import type { LevelController } from '../tools/levelTool';
 import type { PlanBook } from '../plan/planBook';
+import type { ConstructionController } from '../build/constructionController';
 import { PlanGhosts } from '../plan/planGhosts';
 import { newStructureId } from '../mill/structures';
 import { applyChannel, planChannel, writeHeights } from '../tools/channel';
@@ -30,7 +31,7 @@ import { EarthLedger, EditHistory } from '../world/editHistory';
 import { createSiteField } from '../world/siteField';
 import type { Rect } from '../world/terrainField';
 import { buildSite } from './buildSite';
-import { MILL, WHEEL } from './site';
+import { MILL, type SiteStart, WHEEL } from './site';
 
 /** Sim cell size: 0.5 m resolves a 3 m headrace with 6 cells (see tests/perf.test.ts). */
 const WATER_DX = 0.5;
@@ -61,6 +62,10 @@ export function StyleTest({
   wheelPlan,
   level,
   plans,
+  construction,
+  start = 'valley',
+  autoLoad = false,
+  onSwitchStart,
 }: {
   onWater?: (hud: WaterHud) => void;
   tool?: Tool;
@@ -72,6 +77,13 @@ export function StyleTest({
   wheelPlan?: PlacementController;
   level?: LevelController;
   plans?: PlanBook;
+  construction?: ConstructionController;
+  /** Which site to start from. */
+  start?: SiteStart;
+  /** Load the saved game as soon as the scene is ready (used when Load switches start). */
+  autoLoad?: boolean;
+  /** A save from the other start was loaded: rebuild for that start, then load. */
+  onSwitchStart?: (start: SiteStart) => void;
 }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
@@ -81,8 +93,8 @@ export function StyleTest({
   const bankView = useRef<PathView | null>(null);
 
   // The one editable terrain: rendered, simulated over, and dug.
-  const field = useMemo(() => createSiteField(WATER_DX), []);
-  const site = useMemo(() => buildSite(field), [field]);
+  const field = useMemo(() => createSiteField(WATER_DX, start), [start]);
+  const site = useMemo(() => buildSite(field, start), [field, start]);
   const ledger = useMemo(() => new EarthLedger(), []);
   const history = useMemo(() => new EditHistory(field, ledger), [field, ledger]);
 
@@ -131,7 +143,7 @@ export function StyleTest({
   // The water worker. Created in an effect (not useMemo) so StrictMode's double mount
   // terminates the extra worker instead of leaking it.
   useEffect(() => {
-    const client = new WaterClient({ terrain: field, prefill: true });
+    const client = new WaterClient({ terrain: field, prefill: true, start });
     water.current = client;
     let surface: ReturnType<typeof createWaterSurface> | null = null;
     let disposed = false;
@@ -262,6 +274,7 @@ export function StyleTest({
         await writeSave(SLOT, {
           version: SAVE_VERSION,
           savedAt: Date.now(),
+          start,
           spec: field.spec,
           heights: field.heights.slice(),
           material: field.material.slice(),
@@ -272,6 +285,7 @@ export function StyleTest({
           fill: ledger.fill,
           structures: structures?.structures.map((s) => ({ ...s })),
           plans: plans?.items.map((i) => ({ ...i })),
+          construction: construction?.save(),
         });
         actions.setStatus({ message: `Saved at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, hasSave: true });
       } catch (err) {
@@ -283,6 +297,11 @@ export function StyleTest({
         const save = await readSave(SLOT);
         if (!save) {
           actions.setStatus({ message: 'No saved game' });
+          return;
+        }
+        const saveStart = save.start ?? 'oldMill';
+        if (saveStart !== start) {
+          onSwitchStart?.(saveStart);
           return;
         }
         const problem = incompatibility(save, field);
@@ -300,6 +319,7 @@ export function StyleTest({
         bank?.clear();
         water.current?.restart({ prefill: save.depth === null, depth: save.depth ?? undefined, time: save.simTime, discharge: save.discharge });
         plans?.restore(save.plans ?? []);
+        construction?.restore(save.construction);
         if (structures) {
           if (save.structures) structures.restore(save.structures);
           else if (save.mill) structures.restore([siteMillStructure(save.mill.gate, save.mill.lumber)]);
@@ -314,6 +334,7 @@ export function StyleTest({
       (s) => actions.setStatus({ hasSave: !!s }),
       () => actions.setStatus({ hasSave: false }),
     );
+    if (autoLoad) void actions.load();
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e) || !(e.ctrlKey || e.metaKey)) return;
       if (e.code === 'KeyZ' && !e.shiftKey) actions.undo();
@@ -325,7 +346,7 @@ export function StyleTest({
     window.addEventListener('keydown', onKey);
     devExpose({ actions, history, ledger });
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions, field, site, history, ledger, channel, bank, structures, plans]);
+  }, [actions, field, site, history, ledger, channel, bank, structures, plans, construction, start, autoLoad]);
 
   // The works plan: build items on request (recomputed against today's ground), and draw
   // the rest as ghosts.
@@ -344,6 +365,10 @@ export function StyleTest({
     };
     plans.env = {
       field,
+      usedLabels: () => [
+        ...(structures?.structures.map((s) => s.name) ?? []),
+        ...(construction?.site.jobs.map((j) => j.item.label) ?? []),
+      ],
       build: (item) => {
         const input = item.input;
         if (input.kind === 'channel') {
@@ -375,7 +400,54 @@ export function StyleTest({
       planGhosts.current = null;
       plans.env = null;
     };
-  }, [plans, field, scene, history, structures]);
+  }, [plans, field, scene, history, structures, construction]);
+
+  // Construction over calendar days: earthworks reshape the ground a little each day (so the
+  // river responds while the work goes on), and structures go up when their job is done.
+  useEffect(() => {
+    if (!construction) return;
+    construction.env = {
+      field,
+      earthwork: (item) => {
+        const input = item.input;
+        if (input.kind === 'channel') {
+          const r = planChannel(field, input.plan);
+          return { rect: r.rect, heights: r.heights };
+        }
+        if (input.kind === 'bank') {
+          const r = planEmbankment(field, input.plan);
+          return { rect: r.rect, heights: r.heights };
+        }
+        if (input.structure.kind === 'wheel' && input.structure.pit) {
+          const pit = planWheelPit(field, input.structure);
+          return { rect: pit.rect, heights: pit.heights };
+        }
+        return null;
+      },
+      onTerrain: (rect) => {
+        applyRect(rect);
+        // Construction reshapes the ground outside the undo history; undoing an older manual
+        // edit across it would corrupt the ground, so the history starts afresh.
+        if (history.canUndo || history.canRedo) {
+          history.clear();
+          refreshUndo();
+        }
+      },
+      onComplete: (item) => {
+        const input = item.input;
+        if (input.kind === 'structure' && structures) {
+          structures.add({ ...input.structure, id: newStructureId(input.structure.kind), name: item.label });
+        }
+        plans?.reestimate();
+      },
+    };
+    construction.produce = (days) => structures?.accrueDays(days) ?? 0;
+    devExpose({ construction });
+    return () => {
+      construction.env = null;
+      construction.produce = null;
+    };
+  }, [construction, field, history, structures, plans]);
 
   // The surveyor's level.
   const levelView = useRef<PathView | null>(null);
@@ -471,7 +543,7 @@ export function StyleTest({
 
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e)) return;
-      if (e.code === 'KeyC') site.cutaway.visible = !site.cutaway.visible;
+      if (e.code === 'KeyC' && site.oldWorks) site.oldWorks.cutaway.visible = !site.oldWorks.cutaway.visible;
       if (e.code === 'KeyE') ink.edgesOn.value = ink.edgesOn.value ? 0 : 1;
       if (e.code === 'KeyH') ink.hatchOn.value = ink.hatchOn.value ? 0 : 1;
       if (e.code === 'KeyT') ink.showTone.value = ink.showTone.value ? 0 : 1;
@@ -495,10 +567,13 @@ export function StyleTest({
     // The old mill's wheel turns with the water through it: about 7 rpm at full bucket capacity.
     const flow = structures?.dischargeOf(MILL_LINK_ID) ?? 0;
     const speed = water.current?.speed ?? 1;
-    site.wheelSpin.rotation.z += delta * speed * 0.75 * Math.min(1, flow / 2.5);
-    site.flumeWater.visible = flow > 0.05;
+    if (site.oldWorks) {
+      site.oldWorks.wheelSpin.rotation.z += delta * speed * 0.75 * Math.min(1, flow / 2.5);
+      site.oldWorks.flumeWater.visible = flow > 0.05;
+    }
     structureMeshes.current?.update(delta, speed);
     planGhosts.current?.update();
+    construction?.update(delta);
     if (level && levelView.current) {
       level.update(performance.now());
       levelView.current.active = tool === 'level';
@@ -531,7 +606,7 @@ export function StyleTest({
         lastStats.current = client.stats;
         structures.update(client.stats, performance.now());
       }
-      site.spillSheet.visible = (client.stats?.spill ?? 0) > 0.2;
+      if (site.oldWorks) site.oldWorks.spillSheet.visible = (client.stats?.spill ?? 0) > 0.2;
       hudTimer.current += delta;
       if (onWater && hudTimer.current > 0.25) {
         hudTimer.current = 0;

@@ -64,8 +64,8 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
   try {
     const msg = e.data;
     if (msg.type === 'init') {
-      sim = buildRiverSim({ dx: msg.grid.dx, prefill: msg.prefill, discharge: msg.discharge, terrain: { spec: msg.grid, heights: msg.heights } });
-      offset = structureOffset(msg.grid);
+      sim = buildRiverSim({ dx: msg.grid.dx, prefill: msg.prefill, discharge: msg.discharge, terrain: { spec: msg.grid, heights: msg.heights }, start: msg.start });
+      offset = structureOffset(msg.grid, msg.start);
       if (msg.depth) {
         for (let k = 0; k < sim.depth.length; k++) sim.depth[k] = msg.depth[k];
         sim.time = msg.time ?? 0;

@@ -33,6 +33,9 @@ export interface StructuresSnapshot {
   totalLumber: number;
 }
 
+/** A mill's working day (estimate: dawn to dusk, less meals). */
+export const WORKING_HOURS = 10;
+
 interface SimHooks {
   setLink: (link: Link) => void;
   removeLink: (id: string) => void;
@@ -40,16 +43,17 @@ interface SimHooks {
 
 /** All placed gates and wheels: their settings, their links in the sim, and what they make. */
 export class StructuresController {
-  structures: Structure[] = [siteMillStructure()];
+  structures: Structure[];
   private grid: GridInfo | null = null;
   private hooks: SimHooks | null = null;
-  private lastTime: number | null = null;
   private views = new Map<string, StructureView>();
   private snapshot: StructuresSnapshot = { structures: [], totalHp: 0, totalLumber: 0 };
   private listeners = new Set<() => void>();
   private lastEmit = 0;
 
-  constructor() {
+  /** The old mill demo starts with its mill; the valley starts with nothing. */
+  constructor(withOldMill = true) {
+    this.structures = withOldMill ? [siteMillStructure()] : [];
     this.rebuildSnapshot();
   }
 
@@ -67,7 +71,6 @@ export class StructuresController {
   attach(grid: GridInfo, hooks: SimHooks) {
     this.grid = grid;
     this.hooks = hooks;
-    this.lastTime = null;
     for (const s of this.structures) hooks.setLink(structureLink(grid, s));
   }
 
@@ -98,22 +101,35 @@ export class StructuresController {
     this.rebuildSnapshot();
   }
 
-  /** Replace everything (loading a save). The clock restarts so no output is credited for the gap. */
+  /** Replace everything (loading a save). */
   restore(structures: Structure[]) {
     for (const s of this.structures) if (!structures.some((n) => n.id === s.id)) this.hooks?.removeLink(s.id);
     this.structures = structures.map((s) => ({ ...s }));
     for (const s of this.structures) this.push(s);
     this.views.clear();
-    this.lastTime = null;
     this.rebuildSnapshot();
   }
 
-  /** Feed each new sim state; works out power and integrates output over simulated time. */
+  /**
+   * Run the mills for `days` working days at the power the water gives now; returns board
+   * feet cut. Output follows the calendar (the game's time), not the water's clock.
+   */
+  accrueDays(days: number): number {
+    let cut = 0;
+    for (const s of this.structures) {
+      const v = this.views.get(s.id);
+      if (s.kind !== 'wheel' || !v) continue;
+      const bf = v.perHour * WORKING_HOURS * days;
+      s.lumber += bf;
+      cut += bf;
+    }
+    if (cut > 0) this.rebuildSnapshot();
+    return cut;
+  }
+
+  /** Feed each new sim state; works out each structure's flow and power. Output is credited
+   * by accrueDays(), on the calendar. */
   update(stats: SimStats, now: number) {
-    const dt = this.lastTime === null ? 0 : stats.time - this.lastTime;
-    this.lastTime = stats.time;
-    // A big jump means a restart or load, not milling time.
-    const credit = dt > 0 && dt < 600 ? dt : 0;
     for (const s of this.structures) {
       const ls = stats.links.find((l) => l.id === s.id);
       const discharge = ls?.discharge ?? 0;
@@ -122,7 +138,6 @@ export class StructuresController {
       if (s.kind === 'wheel') {
         const head = ls ? wheelHead(etaFrom, etaTo) : 0;
         const run = runMill(wheelPower(BREASTSHOT, discharge, head), SASH_SAW);
-        s.lumber += (run.perHour * credit) / 3600;
         this.views.set(s.id, {
           ...this.base(s),
           discharge,

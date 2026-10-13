@@ -13,6 +13,11 @@ export const CHANNEL_HALF_WIDTH = 6;
 export const CHANNEL_DEPTH = 1.8;
 /** Approximate river depth at RIVER_DISCHARGE (Manning normal depth); the sim decides the real one. */
 export const RIVER_DEPTH = 0.6;
+/**
+ * Where the river actually settles at RIVER_DISCHARGE, above riverBed(): measured from the sim
+ * (1.14 m at every point along the reach). Used to start the river already flowing.
+ */
+export const STEADY_RIVER_STAGE = 1.14;
 export const POND_LEVEL = 1.6;
 export const DAM_X = 0;
 export const SPILLWAY_HALF_WIDTH = 8;
@@ -43,7 +48,11 @@ export function riverBed(x: number): number {
   return -RIVER_SLOPE * x - CHANNEL_DEPTH;
 }
 
-export function terrainHeight(x: number, z: number): number {
+/** Which start a site is built for: the untouched valley, or the old mill demo. */
+export type SiteStart = 'valley' | 'oldMill';
+
+/** Terrain height; `works` carves the old mill's wheel pit and tailrace (demo start only). */
+export function terrainHeight(x: number, z: number, works = true): number {
   const dz = z - riverCenter(x);
   let h = valleyFloor(x, z);
   const t = dz / CHANNEL_HALF_WIDTH;
@@ -51,6 +60,7 @@ export function terrainHeight(x: number, z: number): number {
     const cut = CHANNEL_DEPTH * Math.max(0, 1 - t * t * 0.55);
     h = Math.min(h, -RIVER_SLOPE * x + 0.3 - cut);
   }
+  if (!works) return h;
   // Wheel pit and tailrace dug down to below river level.
   if (x > PIT.x0 && x < PIT.x1 && z > PIT.z0 && z < PIT.z1) h = Math.min(h, PIT.floor);
   if (x > TAILRACE.x0 && x < TAILRACE.x1 && z < PIT.z1 && z > riverCenter(x)) h = Math.min(h, TAILRACE.floor);

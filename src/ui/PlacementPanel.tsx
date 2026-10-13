@@ -4,7 +4,7 @@ import type { PlanBook } from '../plan/planBook';
 import { BREASTSHOT, CFS_PER_M3S, FT_PER_M } from '../mill/wheel';
 import { Field, INK } from './drawing';
 
-export function PlacementPanel({ controller, plans }: { controller: PlacementController; plans?: PlanBook }) {
+export function PlacementPanel({ controller, plans, sandbox = true }: { controller: PlacementController; plans?: PlanBook; sandbox?: boolean }) {
   const p = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const wheel = p.kind === 'wheel';
   return (
@@ -77,9 +77,11 @@ export function PlacementPanel({ controller, plans }: { controller: PlacementCon
             Add to plan
           </button>
         )}
-        <button disabled={p.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Build it now">
-          Build now
-        </button>
+        {sandbox && (
+          <button disabled={p.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Build it now">
+            Build now
+          </button>
+        )}
         <button disabled={p.points === 0} onClick={() => controller.clear()} style={{ font: 'inherit' }}>
           Clear
         </button>
