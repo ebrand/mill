@@ -14,6 +14,7 @@ import type { SimStats } from '../water/protocol';
 import { WaterClient } from '../water/WaterClient';
 import { createWaterSurface } from '../water/waterSurface';
 import type { GameActions } from '../game/actions';
+import type { MillController } from '../mill/millController';
 import { incompatibility, readSave, SAVE_VERSION, writeSave } from '../save/saveGame';
 import { EarthLedger, EditHistory } from '../world/editHistory';
 import { createSiteField } from '../world/siteField';
@@ -45,12 +46,14 @@ export function StyleTest({
   channel,
   bank,
   actions,
+  mill,
 }: {
   onWater?: (hud: WaterHud) => void;
   tool?: Tool;
   channel?: ChannelController;
   bank?: EmbankmentController;
   actions?: GameActions;
+  mill?: MillController;
 }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
@@ -118,6 +121,7 @@ export function StyleTest({
       if (disposed || !client.grid || !client.texture) return;
       surface = createWaterSurface(client.grid, client.texture);
       scene.add(surface.mesh);
+      mill?.attach(client.grid, (link) => client.setLink(link));
       devExpose({ water: client, waterParams: surface.params });
     });
 
@@ -138,7 +142,7 @@ export function StyleTest({
       client.dispose();
       water.current = null;
     };
-  }, [scene, field]);
+  }, [scene, field, mill]);
 
   // Earthworks brush. Edits reach the water sim through the client, whichever is current.
   useEffect(() => {
@@ -248,6 +252,7 @@ export function StyleTest({
           discharge: client?.discharge ?? 0,
           cut: ledger.cut,
           fill: ledger.fill,
+          mill: mill ? { gate: mill.gate, lumber: mill.lumber } : undefined,
         });
         actions.setStatus({ message: `Saved at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, hasSave: true });
       } catch (err) {
@@ -275,6 +280,7 @@ export function StyleTest({
         channel?.clear();
         bank?.clear();
         water.current?.restart({ prefill: save.depth === null, depth: save.depth ?? undefined, time: save.simTime, discharge: save.discharge });
+        if (mill && save.mill) mill.restore(save.mill.gate, save.mill.lumber);
         refreshUndo();
         actions.setStatus({ message: `Loaded game saved ${new Date(save.savedAt).toLocaleString()}` });
       } catch (err) {
@@ -296,7 +302,7 @@ export function StyleTest({
     window.addEventListener('keydown', onKey);
     devExpose({ actions, history, ledger });
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions, field, site, history, ledger, channel, bank]);
+  }, [actions, field, site, history, ledger, channel, bank, mill]);
 
   // With a tool active, the left button works the ground; orbit moves to the right button.
   useEffect(() => {
@@ -343,9 +349,14 @@ export function StyleTest({
 
   // Priority 1 takes over rendering from R3F so the ink pipeline draws the frame.
   const hudTimer = useRef(0);
+  const lastStats = useRef<SimStats | null>(null);
   useFrame((_, delta) => {
     inkTime.value += delta;
-    site.wheelSpin.rotation.z += delta * 0.9;
+    // The wheel turns with the water through it: about 7 rpm at full bucket capacity.
+    const flow = mill?.getSnapshot().discharge ?? 0;
+    const speed = water.current?.speed ?? 1;
+    site.wheelSpin.rotation.z += delta * speed * 0.75 * Math.min(1, flow / 2.5);
+    site.flumeWater.visible = flow > 0.05;
     brush.current?.update(delta, camera);
     if (channel) channel.update(performance.now());
     if (channelView.current) {
@@ -360,6 +371,10 @@ export function StyleTest({
     const client = water.current;
     if (client) {
       client.update(delta);
+      if (mill && client.stats && client.stats !== lastStats.current) {
+        lastStats.current = client.stats;
+        mill.update(client.stats, performance.now());
+      }
       site.spillSheet.visible = (client.stats?.spill ?? 0) > 0.2;
       hudTimer.current += delta;
       if (onWater && hudTimer.current > 0.25) {

@@ -54,6 +54,51 @@ export interface Weir {
   coefficient: number;
 }
 
+/**
+ * A gate: weir flow over its sill while the water is below the gate's lip, orifice flow
+ * under the lip once it's covered. Taking the smaller of the two keeps the change-over
+ * continuous. Q in m^3/s for a gate `width` wide with its bottom (sill) at `sill` and
+ * raised `opening` meters; free discharge (tailwater below the opening) is assumed.
+ */
+export function gateDischarge(etaUp: number, sill: number, opening: number, width: number, cd = 0.6, cWeir = 1.7): number {
+  const H = etaUp - sill;
+  if (H <= 0 || opening <= 0 || width <= 0) return 0;
+  const weir = cWeir * width * H * Math.sqrt(H);
+  // Orifice flow only once the water covers the lip; below that the gate is just a sill.
+  if (H <= opening) return weir;
+  const orifice = cd * width * opening * Math.sqrt(2 * G * (H - opening / 2));
+  return Math.min(weir, orifice);
+}
+
+/**
+ * A structure that carries water between two groups of cells that needn't be neighbours:
+ * a head gate into a flume, a wheel, a culvert. Mass is moved exactly: what leaves `from`
+ * arrives in `to`.
+ */
+export interface Link {
+  id: string;
+  /** Cells the water is drawn from (the forebay). */
+  from: number[];
+  /** Cells it's delivered to (the tailrace). */
+  to: number[];
+  /** Gate sill elevation, m. */
+  sill: number;
+  /** Gate width, m. */
+  width: number;
+  /** Gate opening, m (0 = shut). */
+  opening: number;
+  /** Most the structure can pass regardless of the gate (e.g. a wheel's bucket capacity), m^3/s. */
+  maxDischarge: number;
+}
+
+export interface LinkState {
+  /** Discharge on the last step, m^3/s. */
+  discharge: number;
+  /** Mean water surface at the intake and outlet, m. */
+  etaFrom: number;
+  etaTo: number;
+}
+
 export interface Outflow {
   /** Bed slope used to extrapolate a ghost cell beyond the east boundary. */
   slope: number;
@@ -90,6 +135,8 @@ export class ShallowWater {
   /** Discharge leaving through the east boundary on the last step (m^3/s). */
   lastOutflow = 0;
   private weirs: Weir[] = [];
+  readonly links = new Map<string, Link>();
+  readonly linkState = new Map<string, LinkState>();
   /** Total discharge over all weirs on the last step (m^3/s, absolute). */
   lastWeirFlow = 0;
 
@@ -116,6 +163,16 @@ export class ShallowWater {
 
   addWeir(weir: Weir): void {
     this.weirs.push(weir);
+  }
+
+  setLink(link: Link): void {
+    this.links.set(link.id, link);
+    if (!this.linkState.has(link.id)) this.linkState.set(link.id, { discharge: 0, etaFrom: 0, etaTo: 0 });
+  }
+
+  removeLink(id: string): void {
+    this.links.delete(id);
+    this.linkState.delete(id);
   }
 
   cellX(i: number): number {
@@ -300,10 +357,46 @@ export class ShallowWater {
         depth[c] = d > 0 ? d : 0;
       }
     }
+    this.applyLinks(dt);
     this.volumeIn += inflowRate * dt;
     this.volumeOut += outflowRate * dt;
     this.lastOutflow = outflowRate;
     this.time += dt;
+  }
+
+  /** Move water through every link for one step, never taking more than the intake holds. */
+  private applyLinks(dt: number): void {
+    const area = this.dx * this.dx;
+    const { bed, depth } = this;
+    for (const link of this.links.values()) {
+      const state = this.linkState.get(link.id)!;
+      let available = 0;
+      let etaFrom = 0;
+      for (const c of link.from) {
+        available += depth[c] * area;
+        etaFrom += bed[c] + depth[c];
+      }
+      etaFrom /= Math.max(link.from.length, 1);
+      let etaTo = 0;
+      for (const c of link.to) etaTo += bed[c] + depth[c];
+      etaTo /= Math.max(link.to.length, 1);
+
+      let q = Math.min(gateDischarge(etaFrom, link.sill, link.opening, link.width), link.maxDischarge);
+      // Water can't run uphill through a structure.
+      if (etaTo >= etaFrom) q = 0;
+      let volume = Math.min(q * dt, available * 0.9);
+      if (volume <= 0) volume = 0;
+      if (volume > 0) {
+        // Draw from intake cells in proportion to what each holds; deliver evenly.
+        const take = volume / available;
+        for (const c of link.from) depth[c] -= depth[c] * take;
+        const add = volume / area / link.to.length;
+        for (const c of link.to) depth[c] += add;
+      }
+      state.discharge = volume / dt;
+      state.etaFrom = etaFrom;
+      state.etaTo = etaTo;
+    }
   }
 
   /** Unit discharge over a weir edge: free flow C H^1.5, reduced when drowned (Villemonte). */

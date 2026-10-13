@@ -96,6 +96,10 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       }
       return;
     }
+    if (msg.type === 'link') {
+      sim.setLink(msg.link);
+      return;
+    }
     if (msg.type === 'discharge') {
       if (sim.inflow) sim.inflow.discharge = msg.value;
       return;
@@ -116,6 +120,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
         pondLevel: pondLevel(),
         steps,
         stepMs,
+        links: [...sim.linkState].map(([id, st]) => ({ id, ...st })),
       };
       post({ type: 'state', buffer: msg.buffer, stats }, [msg.buffer]);
     }

@@ -65,9 +65,11 @@ function quad(corners: [number, number, number][], material: Material): Mesh {
  * Water that isn't simulated: the flume (until head gates and races arrive in M3) and the
  * falling sheets. River and pond water come from the sim (see water/waterSurface.ts).
  */
-function decorativeWater(): { group: Group; spillSheet: Mesh } {
+function decorativeWater(): { group: Group; spillSheet: Mesh; flumeWater: Group } {
   const group = new Group();
-  group.add(
+  const flumeWater = new Group();
+  group.add(flumeWater);
+  flumeWater.add(
     waterStrip(
       FLUME.x0,
       FLUME.x1,
@@ -92,8 +94,8 @@ function decorativeWater(): { group: Group; spillSheet: Mesh } {
     ],
     falling,
   );
-  group.add(
-    spillSheet,
+  group.add(spillSheet);
+  flumeWater.add(
     quad(
       [
         [FLUME.x1, FLUME.water, FLUME.z - 1],
@@ -104,7 +106,7 @@ function decorativeWater(): { group: Group; spillSheet: Mesh } {
       falling,
     ),
   );
-  return { group, spillSheet };
+  return { group, spillSheet, flumeWater };
 }
 
 function dam(): Group {
@@ -302,6 +304,8 @@ export interface Site {
   cutaway: Group;
   wheelSpin: Group;
   spillSheet: Mesh;
+  /** Water in the flume and the jet onto the wheel; shown only while the gate passes water. */
+  flumeWater: Group;
 }
 
 export function buildSite(field: TerrainField): Site {
@@ -311,6 +315,6 @@ export function buildSite(field: TerrainField): Site {
   const wheelGroup = wheel();
   const water = decorativeWater();
   root.add(terrain.group, water.group, dam(), flume(), wheelGroup, millParts.group);
-  return { root, terrain, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet };
+  return { root, terrain, cutaway: millParts.cutaway, wheelSpin: wheelGroup.userData.spin as Group, spillSheet: water.spillSheet, flumeWater: water.flumeWater };
 }
 

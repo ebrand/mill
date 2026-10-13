@@ -2,6 +2,7 @@ import { DataTexture, FloatType, LinearFilter, RGBAFormat } from 'three';
 import { RIVER_DISCHARGE } from '../scene/site';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { FromWorker, GridInfo, SimStats, ToWorker } from './protocol';
+import type { Link } from './shallowWater';
 import { STATE_STRIDE } from './protocol';
 
 export interface WaterClientOptions {
@@ -57,6 +58,8 @@ export class WaterClient {
       depth: o.depth,
       time: o.time,
     });
+    // Structures survive restarts (load, reset).
+    for (const link of this.links?.values() ?? []) this.send(worker, { type: 'link', link });
     return worker;
   }
 
@@ -170,6 +173,14 @@ export class WaterClient {
     // No readiness check: messages queue in order behind 'init', so early edits still land.
     const heights = this.options.terrain.extract(rect);
     this.send(this.worker, { type: 'bed', rect, heights }, [heights.buffer]);
+  }
+
+  /** Links are re-sent after a restart, so callers set them once. */
+  private links = new Map<string, Link>();
+
+  setLink(link: Link) {
+    this.links.set(link.id, link);
+    this.send(this.worker, { type: 'link', link });
   }
 
   setDischarge(value: number) {

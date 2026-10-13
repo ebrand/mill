@@ -1,12 +1,14 @@
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GameActions } from './game/actions';
+import { MillController } from './mill/millController';
 import { isTyping } from './debug/devExpose';
 import { ChannelController } from './tools/channelTool';
 import { EmbankmentController } from './tools/embankmentTool';
 import type { Tool } from './tools/earthBrush';
 import { ChannelPanel } from './ui/ChannelPanel';
 import { EmbankmentPanel } from './ui/EmbankmentPanel';
+import { MillPanel } from './ui/MillPanel';
 import { WebGPURenderer } from 'three/webgpu';
 import { StyleTest, type WaterHud } from './scene/StyleTest';
 
@@ -40,11 +42,14 @@ export function App() {
   const channel = useMemo(() => new ChannelController(), []);
   const bank = useMemo(() => new EmbankmentController(), []);
   const actions = useMemo(() => new GameActions(), []);
+  const mill = useMemo(() => new MillController(), []);
+  const [showMill, setShowMill] = useState(true);
   const status = useSyncExternalStore(actions.subscribe, actions.getSnapshot);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Typing in the channel panel's fields shouldn't switch tools.
       if (isTyping(e)) return;
+      if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey) setShowMill((v) => !v);
       const t = TOOLS.find((t) => t.key === e.code);
       if (t) setTool(t.id);
     };
@@ -66,10 +71,11 @@ export function App() {
           return renderer;
         }}
       >
-        <StyleTest onWater={onWater} tool={tool} channel={channel} bank={bank} actions={actions} />
+        <StyleTest onWater={onWater} tool={tool} channel={channel} bank={bank} actions={actions} mill={mill} />
       </Canvas>
       {tool === 'channel' && <ChannelPanel controller={channel} />}
       {tool === 'bank' && <EmbankmentPanel controller={bank} />}
+      {showMill && <MillPanel mill={mill} />}
       <div style={{ position: 'fixed', top: 14, left: 16, display: 'flex', gap: 6, font: '14px Georgia, serif' }}>
         {TOOLS.map((t) => (
           <button
@@ -116,6 +122,22 @@ export function App() {
             {label}
           </button>
         ))}
+        <span style={{ width: 12 }} />
+        <button
+          onClick={() => setShowMill((v) => !v)}
+          title="Show or hide the mill panel (M)"
+          style={{
+            font: 'inherit',
+            padding: '4px 12px',
+            color: '#2b2620',
+            background: showMill ? '#d9cdb4' : '#f1e9d8',
+            border: '1px solid #2b2620',
+            borderRadius: 2,
+            cursor: 'pointer',
+          }}
+        >
+          Mill
+        </button>
         {status.message && <span style={{ alignSelf: 'center', marginLeft: 8, color: '#2b2620' }}>{status.message}</span>}
       </div>
       <div

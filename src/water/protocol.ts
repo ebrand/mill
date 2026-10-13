@@ -1,3 +1,5 @@
+import type { Link } from './shallowWater';
+
 // Messages between the main thread and the water worker. State buffers are transferred
 // (zero-copy) back and forth: the main thread always hands one back before asking again,
 // so there's never more than one request in flight and no shared memory (which would need
@@ -17,6 +19,13 @@ export const STATE_STRIDE = 4;
 //     mesh meets the bank cleanly), [1] depth (-1 = dry and away from water),
 // [2] velocity x, [3] velocity z.
 
+export interface LinkStats {
+  id: string;
+  discharge: number;
+  etaFrom: number;
+  etaTo: number;
+}
+
 export interface SimStats {
   time: number;
   volume: number;
@@ -29,6 +38,7 @@ export interface SimStats {
   steps: number;
   /** Wall time the worker spent stepping for this request. */
   stepMs: number;
+  links: LinkStats[];
 }
 
 export interface BedRect {
@@ -54,7 +64,9 @@ export type ToWorker =
   /** New terrain heights for a rectangle of cells (row-major, (i1 - i0) wide). */
   | { type: 'bed'; rect: BedRect; heights: Float32Array }
   | { type: 'step'; seconds: number; buffer: ArrayBuffer }
-  | { type: 'discharge'; value: number };
+  | { type: 'discharge'; value: number }
+  /** Add or replace a structure link (gate opening changes go through here too). */
+  | { type: 'link'; link: Link };
 
 export type FromWorker =
   | { type: 'ready'; grid: GridInfo; bed: Float32Array }

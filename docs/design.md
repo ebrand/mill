@@ -184,6 +184,7 @@ Each ends with something you can see or play, and its tests passing. **M0 and M3
    *Status:* sim, worker, LIC water, weirs, speed controls done. Valley generation is still the hand-shaped M0 valley (not seeded).
 2. **M2: earthworks.** Channel, embankment and brush tools with previews; cut and fill accounting; water responds live. Pond fills to a spillway. Tests: tool geometry, conservation with structures.
 3. **M3: first mill.** Wheel pit with head gate (orifice link), one wheel type, line shaft, sawmill, lumber output, hp readout. *Exit: is siting and building the first mill fun?* Rethink before going on if not.
+   *Status (stage A):* the site's existing mill works. A head gate (orifice/weir law) feeds the flume, a breastshot wheel turns P = η·ρ·g·Q·H into horsepower, the drivetrain drives a sash saw (10 hp, 120 board feet an hour, both estimates), and lumber accrues over simulated time. Gate and lumber are saved. Stage B, player-built gates and wheels, is next.
 4. **M4: drivetrain and production.** Component catalog, belts and clutches, proportional slowdown, cotton chain, market and ledger.
 5. **M5: seasons and hazards.** Discharge over the year, droughts, floods, ice, dam overtopping and breach, construction under time pressure.
 6. **M6: scenarios.** Scenario framework, the eras, technology progression, objectives.

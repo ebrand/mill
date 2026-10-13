@@ -18,6 +18,8 @@ export interface SaveData {
   discharge: number;
   cut: number;
   fill: number;
+  /** The mill's head gate and lumber cut (absent in saves from before M3). */
+  mill?: { gate: number; lumber: number };
 }
 
 /** Why a save can't be loaded into this field, or null if it can. */

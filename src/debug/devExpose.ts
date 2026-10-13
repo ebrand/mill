@@ -5,8 +5,16 @@ export function devExpose(values: Record<string, unknown>): void {
   w.__mill = Object.assign(w.__mill ?? {}, values);
 }
 
-/** True when a key event is someone typing into a form field, which shortcuts must ignore. */
+/** Input types where keys are text, not shortcuts. Sliders and buttons aren't among them. */
+const TEXT_INPUTS = new Set(['text', 'number', 'search', 'email', 'password', 'tel', 'url']);
+
+/**
+ * True when a key event is someone typing into a text field, which shortcuts must ignore.
+ * A focused slider (e.g. the head gate) must not swallow shortcuts: it keeps focus after a
+ * drag, and clicking the 3D view doesn't take focus away from it.
+ */
 export function isTyping(e: KeyboardEvent): boolean {
   const t = e.target;
-  return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
+  if (t instanceof HTMLInputElement) return TEXT_INPUTS.has(t.type);
+  return t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable);
 }
