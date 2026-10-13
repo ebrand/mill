@@ -22,7 +22,7 @@ function wheel(id: string, opening = 0.3): Structure {
 }
 
 function stats(time: number, links: SimStats['links']): SimStats {
-  return { time, volume: 0, inflow: 0, outflow: 0, spill: 0, pondLevel: 0, steps: 0, stepMs: 0, links };
+  return { time, volume: 0, inflow: 0, outflow: 0, spill: 0, pondLevel: 0, steps: 0, stepMs: 0, links, weirGroups: [] };
 }
 
 describe('structure links', () => {
@@ -53,7 +53,12 @@ describe('StructuresController', () => {
     expect(c.structures[0].builtIn).toBe(true);
     const sent: string[] = [];
     const removed: string[] = [];
-    c.attach(grid, { setLink: (l) => sent.push(`${l.id}:${l.opening}`), removeLink: (id) => removed.push(id) });
+    c.attach(grid, {
+      setLink: (l) => sent.push(`${l.id}:${l.opening}`),
+      removeLink: (id) => removed.push(id),
+      setWeirs: () => {},
+      removeWeirs: () => {},
+    });
     c.add(wheel('w1'));
     c.setOpening('w1', 0.5);
     expect(sent.at(-1)).toBe('w1:0.5');

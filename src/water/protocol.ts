@@ -1,5 +1,5 @@
 import type { SiteStart } from '../scene/site';
-import type { Link } from './shallowWater';
+import type { Link, Weir } from './shallowWater';
 
 // Messages between the main thread and the water worker. State buffers are transferred
 // (zero-copy) back and forth: the main thread always hands one back before asking again,
@@ -40,6 +40,8 @@ export interface SimStats {
   /** Wall time the worker spent stepping for this request. */
   stepMs: number;
   links: LinkStats[];
+  /** Discharge over each spillway, m^3/s. */
+  weirGroups: { id: string; discharge: number }[];
 }
 
 export interface BedRect {
@@ -70,7 +72,10 @@ export type ToWorker =
   | { type: 'discharge'; value: number }
   /** Add or replace a structure link (gate opening changes go through here too). */
   | { type: 'link'; link: Link }
-  | { type: 'unlink'; id: string };
+  | { type: 'unlink'; id: string }
+  /** Add or replace a group of weir edges (a spillway). */
+  | { type: 'weirs'; id: string; weirs: Weir[] }
+  | { type: 'unweirs'; id: string };
 
 export type FromWorker =
   | { type: 'ready'; grid: GridInfo; bed: Float32Array }

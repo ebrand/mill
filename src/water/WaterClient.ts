@@ -2,7 +2,7 @@ import { DataTexture, FloatType, LinearFilter, RGBAFormat } from 'three';
 import { RIVER_DISCHARGE, type SiteStart } from '../scene/site';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { FromWorker, GridInfo, SimStats, ToWorker } from './protocol';
-import type { Link } from './shallowWater';
+import type { Link, Weir } from './shallowWater';
 import { STATE_STRIDE } from './protocol';
 
 export interface WaterClientOptions {
@@ -63,6 +63,7 @@ export class WaterClient {
     });
     // Structures survive restarts (load, reset).
     for (const link of this.links?.values() ?? []) this.send(worker, { type: 'link', link });
+    for (const [id, weirs] of this.weirGroups?.entries() ?? []) this.send(worker, { type: 'weirs', id, weirs });
     return worker;
   }
 
@@ -204,6 +205,18 @@ export class WaterClient {
   removeLink(id: string) {
     this.links.delete(id);
     this.send(this.worker, { type: 'unlink', id });
+  }
+
+  private weirGroups = new Map<string, Weir[]>();
+
+  setWeirs(id: string, weirs: Weir[]) {
+    this.weirGroups.set(id, weirs);
+    this.send(this.worker, { type: 'weirs', id, weirs });
+  }
+
+  removeWeirs(id: string) {
+    this.weirGroups.delete(id);
+    this.send(this.worker, { type: 'unweirs', id });
   }
 
   setDischarge(value: number) {

@@ -8,6 +8,7 @@ import type { PathSource } from '../tools/pathView';
 import { writeHeights } from '../tools/channel';
 import { type PitResult, planWheelPit } from '../tools/pit';
 import type { Rect } from '../world/terrainField';
+import { headOverCrest, openCrestLength } from './spillway';
 import { BREAST, newStructureId, pitLength, type Structure, type StructureKind, WHEEL_ENTRY_LOSS, wheelGeometry } from './structures';
 import { BREASTSHOT, runMill, SASH_SAW, wheelEfficiency, wheelPower } from './wheel';
 
@@ -35,6 +36,10 @@ export interface PlacementPreview {
   discharge: number;
   wheelHp: number;
   sawSpeed: number;
+  /** Spillways: the pond the crest would hold at today's river flow, m. */
+  pondLevel: number | null;
+  /** Spillways: crest length the water can actually pass (ground below the crest), m. */
+  openLength: number;
   warnings: string[];
 }
 
@@ -51,8 +56,11 @@ export interface PlacementEnv {
 const DEFAULTS: Record<StructureKind, PlacementParams> = {
   gate: { width: 2, opening: 0.3, sill: null },
   wheel: { width: 2.2, opening: 0.3, sill: null },
+  spillway: { width: 0, opening: 0, sill: null },
 };
-const MAX_OPENING: Record<StructureKind, number> = { gate: 1.0, wheel: 0.6 };
+const MAX_OPENING: Record<StructureKind, number> = { gate: 1.0, wheel: 0.6, spillway: 0 };
+/** A suggested spillway crest stands this far above the water (or ground) where it's placed. */
+const SPILLWAY_RAISE = 1.0;
 /** Beyond this the "wheel" is really a long flume; warn. */
 const WHEEL_MAX_SPAN = 25;
 
@@ -93,6 +101,8 @@ export class PlacementController implements PathSource {
       discharge: 0,
       wheelHp: 0,
       sawSpeed: 0,
+      pondLevel: null,
+      openLength: 0,
       warnings: [],
     };
   }
@@ -113,6 +123,8 @@ export class PlacementController implements PathSource {
   }
   clear() {
     this.points = [];
+    // A fresh placement gets a fresh suggested sill or crest.
+    if (this.kind === 'spillway') this.params = { ...this.params, sill: null };
     this.dirty = true;
   }
   setParam<K extends keyof PlacementParams>(key: K, value: PlacementParams[K]) {
@@ -139,6 +151,10 @@ export class PlacementController implements PathSource {
     if (!this.env || this.points.length === 0) {
       this.preview = this.empty();
       this.emit();
+      return;
+    }
+    if (this.kind === 'spillway') {
+      this.recomputeSpillway();
       return;
     }
     const field = this.env.field;
@@ -188,6 +204,45 @@ export class PlacementController implements PathSource {
     this.emit();
   }
 
+  /** A spillway: a crest line across the water; how high it would hold the pond. */
+  private recomputeSpillway() {
+    const env = this.env!;
+    const field = env.field;
+    const p: PlacementPreview = { ...this.empty() };
+    const warnings: string[] = [];
+    if (this.points.length === 2) {
+      const [a, b] = this.points;
+      const mid = this.level((a.x + b.x) / 2, (a.z + b.z) / 2);
+      // Suggest a crest once, then keep it: recomputing from the moving water made it drift
+      // while the player was building banks to match it.
+      if (this.params.sill === null) this.params = { ...this.params, sill: Math.round((mid.level + SPILLWAY_RAISE) * 10) / 10 };
+      const crest = this.params.sill!;
+      const length = Math.hypot(b.x - a.x, b.z - a.z);
+      const open = openCrestLength((x, z) => field.heightAt(x, z), a, b, crest);
+      const river = env.water()?.discharge ?? 0;
+      const head = headOverCrest(river, open);
+      const pond = crest + head;
+      p.sill = crest;
+      p.length = length;
+      p.openLength = open;
+      p.discharge = river;
+      p.head = head;
+      p.pondLevel = pond;
+      p.intakeLevel = mid.level;
+      p.intakeWet = mid.wet;
+      const ends = Math.min(field.heightAt(a.x, a.z), field.heightAt(b.x, b.z));
+      if (ends < pond) warnings.push(`An end stands on ground ${(pond - ends).toFixed(2)} m below the pond this would hold: water will go around. Tie it into a bank or higher ground.`);
+      if (mid.wet && crest <= mid.level) warnings.push('The crest is below the water already: it won’t hold anything back.');
+      if (!mid.wet) warnings.push('There’s no water here to spill: place it across the river or a race.');
+      if (open < length * 0.5) warnings.push(`Only ${open.toFixed(0)} m of the crest is open to the water; banks or high ground close the rest.`);
+    }
+    p.points = this.points.length;
+    p.params = { ...this.params };
+    p.warnings = warnings;
+    this.preview = p;
+    this.emit();
+  }
+
   /**
    * The structure as placed, not yet built (no ground changed). A wheel carries its pit
    * geometry; planWheelPit() digs it.
@@ -201,18 +256,20 @@ export class PlacementController implements PathSource {
       const geo = wheelGeometry(this.preview.sill, this.env.field.heightAt(b.x, b.z));
       pit = { start: BREAST, floor: geo.floor, radius: geo.radius };
     }
+    const names: Record<StructureKind, string> = { wheel: 'Wheel', gate: 'Gate', spillway: 'Spillway' };
     return {
       id: newStructureId(this.kind),
       kind: this.kind,
-      name: this.kind === 'wheel' ? `Wheel ${this.built + 1}` : `Gate ${this.built + 1}`,
+      name: `${names[this.kind]} ${this.built + 1}`,
       intake: { ...a },
       outlet: { ...b },
-      width: this.params.width,
+      width: this.kind === 'spillway' ? Math.hypot(b.x - a.x, b.z - a.z) : this.params.width,
       sill: this.preview.sill,
       opening: this.params.opening,
       maxOpening: MAX_OPENING[this.kind],
       lumber: 0,
       pit,
+      openLength: this.kind === 'spillway' ? this.preview.openLength : undefined,
     };
   }
 
@@ -246,6 +303,16 @@ export class PlacementController implements PathSource {
   previewLines(): [number, number, number][][] {
     if (!this.env || this.points.length < 2) return [];
     const [a, b] = this.points;
+    if (this.kind === 'spillway' && this.preview.sill !== null) {
+      // The crest, at its height (or on the ground where that's higher).
+      const crest: [number, number, number][] = [];
+      for (let k = 0; k <= 24; k++) {
+        const x = a.x + ((b.x - a.x) * k) / 24;
+        const z = a.z + ((b.z - a.z) * k) / 24;
+        crest.push([x, Math.max(this.preview.sill, this.env.field.heightAt(x, z)) + 0.1, z]);
+      }
+      return [crest];
+    }
     const la = this.level(a.x, a.z).level;
     const lb = this.level(b.x, b.z).level;
     const n = 24;

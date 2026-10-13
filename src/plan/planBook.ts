@@ -8,7 +8,7 @@ import { type EmbankmentPlan, planEmbankment } from '../tools/embankment';
 import { normalAt } from '../tools/pathView';
 import { planWheelPit } from '../tools/pit';
 import type { TerrainField } from '../world/terrainField';
-import { addCosts, type Cost, earthworkCost, emptyCost, gateCost, wheelCost } from './costs';
+import { addCosts, type Cost, earthworkCost, emptyCost, gateCost, spillwayCost, wheelCost } from './costs';
 
 export type PlanInput =
   | { kind: 'channel'; plan: ChannelPlan }
@@ -36,9 +36,21 @@ export function estimate(field: TerrainField, input: PlanInput): Cost {
   if (input.kind === 'bank') return earthworkCost(0, 0, planEmbankment(field, input.plan).fill);
   const s = input.structure;
   if (s.kind === 'gate') return gateCost(s.width);
+  if (s.kind === 'spillway') {
+    const length = Math.hypot(s.outlet.x - s.intake.x, s.outlet.z - s.intake.z);
+    return spillwayCost(length, s.sill - lowestGround(field, s.intake, s.outlet));
+  }
   const pit = planWheelPit(field, s);
   const radius = s.pit?.radius ?? 2.4;
   return addCosts(earthworkCost(pit.cut, pit.cutRock, 0), wheelCost(radius * 2, s.width, pit.length, pit.depth));
+}
+
+/** Lowest ground along a straight line. */
+export function lowestGround(field: TerrainField, a: { x: number; z: number }, b: { x: number; z: number }): number {
+  let low = Infinity;
+  const n = Math.max(2, Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / field.dx));
+  for (let k = 0; k <= n; k++) low = Math.min(low, field.heightAt(a.x + ((b.x - a.x) * k) / n, a.z + ((b.z - a.z) * k) / n));
+  return low;
 }
 
 /** Dashed outlines for an item's ghost in the scene. */
@@ -61,6 +73,11 @@ export function ghostLines(field: TerrainField, input: PlanInput): [number, numb
     return [left, right];
   }
   const s = input.structure;
+  if (s.kind === 'spillway') {
+    const crest: [number, number, number][] = [];
+    for (let k = 0; k <= 24; k++) crest.push(onGround(s.intake.x + ((s.outlet.x - s.intake.x) * k) / 24, s.intake.z + ((s.outlet.z - s.intake.z) * k) / 24, s.sill));
+    return [crest];
+  }
   const box = (cx: number, cz: number, r: number) => [
     onGround(cx - r, cz - r),
     onGround(cx + r, cz - r),
@@ -90,7 +107,7 @@ export function ghostLines(field: TerrainField, input: PlanInput): [number, numb
 function kindName(input: PlanInput): string {
   if (input.kind === 'channel') return 'Race';
   if (input.kind === 'bank') return 'Bank';
-  return input.structure.kind === 'wheel' ? 'Wheel' : 'Head gate';
+  return input.structure.kind === 'wheel' ? 'Wheel' : input.structure.kind === 'spillway' ? 'Spillway' : 'Head gate';
 }
 
 export interface PlanEnv {

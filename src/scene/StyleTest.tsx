@@ -60,6 +60,7 @@ export function StyleTest({
   structures,
   gatePlan,
   wheelPlan,
+  spillwayPlan,
   level,
   plans,
   construction,
@@ -75,6 +76,7 @@ export function StyleTest({
   structures?: StructuresController;
   gatePlan?: PlacementController;
   wheelPlan?: PlacementController;
+  spillwayPlan?: PlacementController;
   level?: LevelController;
   plans?: PlanBook;
   construction?: ConstructionController;
@@ -151,7 +153,12 @@ export function StyleTest({
       if (disposed || !client.grid || !client.texture) return;
       surface = createWaterSurface(client.grid, client.texture);
       scene.add(surface.mesh);
-      structures?.attach(client.grid, { setLink: (link) => client.setLink(link), removeLink: (id) => client.removeLink(id) });
+      structures?.attach(client.grid, {
+        setLink: (link) => client.setLink(link),
+        removeLink: (id) => client.removeLink(id),
+        setWeirs: (id, weirs) => client.setWeirs(id, weirs),
+        removeWeirs: (id) => client.removeWeirs(id),
+      });
       devExpose({ water: client, waterParams: surface.params });
     });
 
@@ -469,16 +476,21 @@ export function StyleTest({
   // Placing gates and wheels, and drawing the ones built.
   const gateView = useRef<PathView | null>(null);
   const wheelView = useRef<PathView | null>(null);
+  const spillwayView = useRef<PathView | null>(null);
   const structureMeshes = useRef<StructureMeshes | null>(null);
   useEffect(() => {
     if (!structures) return;
-    const meshes = new StructureMeshes(structures, field);
+    const meshes = new StructureMeshes(structures, field, (x, z) => {
+      const w = water.current?.surfaceAt(x, z);
+      return w && w.depth > 0.05 ? w.eta : null;
+    });
     structureMeshes.current = meshes;
     scene.add(meshes.group);
     const views: PathView[] = [];
     for (const [plan, ref] of [
       [gatePlan, gateView],
       [wheelPlan, wheelView],
+      [spillwayPlan, spillwayView],
     ] as const) {
       if (!plan) continue;
       plan.env = {
@@ -501,7 +513,7 @@ export function StyleTest({
       views.push(view);
       scene.add(view.group);
     }
-    devExpose({ structures, gatePlan, wheelPlan });
+    devExpose({ structures, gatePlan, wheelPlan, spillwayPlan });
     return () => {
       scene.remove(meshes.group);
       structureMeshes.current = null;
@@ -511,10 +523,12 @@ export function StyleTest({
       }
       gateView.current = null;
       wheelView.current = null;
+      spillwayView.current = null;
       if (gatePlan) gatePlan.env = null;
       if (wheelPlan) wheelPlan.env = null;
+      if (spillwayPlan) spillwayPlan.env = null;
     };
-  }, [structures, gatePlan, wheelPlan, field, scene, renderer, camera, history]);
+  }, [structures, gatePlan, wheelPlan, spillwayPlan, field, scene, renderer, camera, history]);
 
   // With a tool active, the left button works the ground; orbit moves to the right button.
   useEffect(() => {
@@ -582,6 +596,7 @@ export function StyleTest({
     for (const [plan, view, kind] of [
       [gatePlan, gateView.current, 'gate'],
       [wheelPlan, wheelView.current, 'wheel'],
+      [spillwayPlan, spillwayView.current, 'spillway'],
     ] as const) {
       if (!plan || !view) continue;
       plan.update(performance.now());

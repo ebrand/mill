@@ -143,6 +143,10 @@ export class ShallowWater {
   /** Discharge leaving through the east boundary on the last step (m^3/s). */
   lastOutflow = 0;
   private weirs: Weir[] = [];
+  /** Weirs placed by the player (spillways), by structure id. */
+  readonly weirGroups = new Map<string, Weir[]>();
+  /** Discharge over each weir group on the last step, m^3/s. */
+  readonly weirGroupFlow = new Map<string, number>();
   readonly links = new Map<string, Link>();
   readonly linkState = new Map<string, LinkState>();
   /** Total discharge over all weirs on the last step (m^3/s, absolute). */
@@ -171,6 +175,16 @@ export class ShallowWater {
 
   addWeir(weir: Weir): void {
     this.weirs.push(weir);
+  }
+
+  setWeirGroup(id: string, weirs: Weir[]): void {
+    this.weirGroups.set(id, weirs);
+    this.weirGroupFlow.set(id, 0);
+  }
+
+  removeWeirGroup(id: string): void {
+    this.weirGroups.delete(id);
+    this.weirGroupFlow.delete(id);
   }
 
   setLink(link: Link): void {
@@ -300,6 +314,7 @@ export class ShallowWater {
     }
 
     for (const w of this.weirs) this.applyWeir(w);
+    for (const group of this.weirGroups.values()) for (const w of group) this.applyWeir(w);
 
     if (this.inflow && this.inflow.rows.length > 0) {
       const qPerWidth = this.inflow.discharge / (this.inflow.rows.length * dx);
@@ -348,6 +363,12 @@ export class ShallowWater {
 
     let weirFlow = 0;
     for (const w of this.weirs) weirFlow += Math.abs(w.axis === 'x' ? qx[w.edge] : qz[w.edge]);
+    for (const [id, group] of this.weirGroups) {
+      let g = 0;
+      for (const w of group) g += Math.abs(w.axis === 'x' ? qx[w.edge] : qz[w.edge]);
+      this.weirGroupFlow.set(id, g * dx);
+      weirFlow += g;
+    }
     this.lastWeirFlow = weirFlow * dx;
 
     // Continuity.

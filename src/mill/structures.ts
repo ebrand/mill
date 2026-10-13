@@ -7,18 +7,18 @@ import type { GridInfo } from '../water/protocol';
 import type { Link } from '../water/shallowWater';
 import { BREASTSHOT } from './wheel';
 
-export type StructureKind = 'gate' | 'wheel';
+export type StructureKind = 'gate' | 'wheel' | 'spillway';
 
 export interface Structure {
   id: string;
   kind: StructureKind;
   name: string;
-  /** Intake (upstream) and outlet (downstream) points, world XZ. */
+  /** Intake (upstream) and outlet (downstream) points, world XZ. For a spillway, the two ends of its crest. */
   intake: { x: number; z: number };
   outlet: { x: number; z: number };
   /** Gate width, m. */
   width: number;
-  /** Gate sill elevation, m. */
+  /** Gate sill elevation, m. For a spillway, the crest elevation. */
   sill: number;
   /** Gate opening, m. */
   opening: number;
@@ -33,6 +33,8 @@ export interface Structure {
    * breast of earth between race and pit) and runs to the outlet, floored at `floor`.
    */
   pit?: { start: number; floor: number; radius: number };
+  /** Spillways: crest length open to the water when built (ground below the crest), m. */
+  openLength?: number;
   /**
    * Explicit intake/outlet areas [x0, x1, z0, z1] instead of disks around the points; used
    * by the built-in mill, whose intake and pit are rectangular.

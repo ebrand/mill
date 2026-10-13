@@ -35,3 +35,26 @@ describe('placement sill', () => {
     expect(c.getSnapshot().sill).toBe(0.8);
   });
 });
+
+describe('spillway placement', () => {
+  it('suggests a crest once and keeps it while the water moves; Clear starts afresh', () => {
+    const f = new TerrainField({ nx: 100, nz: 60, dx: 0.5, x0: 0, z0: 0 });
+    f.generate(() => 0, () => Material.Soil);
+    let level = 1.0;
+    const water = { surfaceAt: () => ({ eta: level, depth: level }), discharge: 6 } as unknown as import('../src/water/WaterClient').WaterClient;
+    const c = new PlacementController('spillway');
+    c.env = { field: f, water: () => water, onBuild: () => {} };
+    c.addPoint(20, 2);
+    c.addPoint(20, 28);
+    c.update(1e9);
+    expect(c.getSnapshot().sill).toBeCloseTo(2.0, 9);
+    level = 1.6; // the water rises (e.g. banks going up)
+    c.update(2e9);
+    expect(c.getSnapshot().sill).toBeCloseTo(2.0, 9);
+    c.clear();
+    c.addPoint(20, 2);
+    c.addPoint(20, 28);
+    c.update(3e9);
+    expect(c.getSnapshot().sill).toBeCloseTo(2.6, 9);
+  });
+});

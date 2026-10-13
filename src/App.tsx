@@ -46,6 +46,7 @@ const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'bank', label: 'Bank', key: 'KeyB' },
   { id: 'gate', label: 'Gate', key: 'KeyU' },
   { id: 'wheel', label: 'Wheel', key: 'KeyW' },
+  { id: 'spillway', label: 'Spillway', key: 'KeyK' },
 ];
 
 interface GameScreenProps {
@@ -104,6 +105,7 @@ function GameScreen({ start, autoLoad, onNewGame, onSwitchStart }: GameScreenPro
   const structures = useMemo(() => new StructuresController(start === 'oldMill'), [start]);
   const gatePlan = useMemo(() => new PlacementController('gate'), []);
   const wheelPlan = useMemo(() => new PlacementController('wheel'), []);
+  const spillwayPlan = useMemo(() => new PlacementController('spillway'), []);
   const level = useMemo(() => new LevelController(), []);
   const plans = useMemo(() => new PlanBook(), []);
   const construction = useMemo(() => new ConstructionController(), []);
@@ -156,6 +158,7 @@ function GameScreen({ start, autoLoad, onNewGame, onSwitchStart }: GameScreenPro
           structures={structures}
           gatePlan={gatePlan}
           wheelPlan={wheelPlan}
+          spillwayPlan={spillwayPlan}
           level={level}
           plans={plans}
           construction={construction}
@@ -169,6 +172,7 @@ function GameScreen({ start, autoLoad, onNewGame, onSwitchStart }: GameScreenPro
       {tool === 'level' && <LevelPanel controller={level} />}
       {tool === 'gate' && <PlacementPanel controller={gatePlan} plans={plans} sandbox={sandbox} />}
       {tool === 'wheel' && <PlacementPanel controller={wheelPlan} plans={plans} sandbox={sandbox} />}
+      {tool === 'spillway' && <PlacementPanel controller={spillwayPlan} plans={plans} sandbox={sandbox} />}
       {showPlan && <WorksPlanPanel plans={plans} construction={construction} sandbox={sandbox} />}
       <CalendarBar construction={construction} />
       {newGame && (
@@ -305,7 +309,7 @@ function GameScreen({ start, autoLoad, onNewGame, onSwitchStart }: GameScreenPro
         <br />
         River: 0 pause · 1 real time · 2 4× · 3 16× · [ ] inflow · R restart dry · F restart filled
         <br />
-        Earth: L level · G dig · V fill (sandbox) · N channel · B bank · U gate · W wheel · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
+        Earth: L level · G dig · V fill (sandbox) · N channel · B bank · U gate · W wheel · K spillway · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
       </div>
     </>
   );

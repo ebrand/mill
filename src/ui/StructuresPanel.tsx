@@ -33,12 +33,18 @@ function Item({ v, controller }: { v: StructureView; controller: StructuresContr
           </button>
         )}
       </div>
+      {v.kind === 'spillway' ? (
+        <div>
+          {(v.discharge * CFS_PER_M3S).toFixed(0)} cu ft/s over the crest · pond at {v.etaFrom.toFixed(2)} m
+        </div>
+      ) : (
       <label style={{ display: 'grid', gap: 2 }}>
         <span>
           Gate {(v.opening * 100).toFixed(0)} cm open{v.opening === 0 ? ' (shut)' : ''} · {(v.discharge * CFS_PER_M3S).toFixed(0)} cu ft/s
         </span>
         <input type="range" min={0} max={v.maxOpening} step={0.01} value={v.opening} onChange={(e) => controller.setOpening(v.id, Number(e.target.value))} />
       </label>
+      )}
       {v.kind === 'wheel' ? (
         <>
           <div>
@@ -50,11 +56,11 @@ function Item({ v, controller }: { v: StructureView; controller: StructuresContr
             {v.perHour.toFixed(0)} bd ft/hour · <strong>{Math.floor(v.lumber).toLocaleString()}</strong> cut
           </div>
         </>
-      ) : (
+      ) : v.kind === 'gate' ? (
         <div>
           Water {v.etaFrom.toFixed(2)} m above, {v.etaTo.toFixed(2)} m below
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

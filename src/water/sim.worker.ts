@@ -104,6 +104,14 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       sim.removeLink(msg.id);
       return;
     }
+    if (msg.type === 'weirs') {
+      sim.setWeirGroup(msg.id, msg.weirs);
+      return;
+    }
+    if (msg.type === 'unweirs') {
+      sim.removeWeirGroup(msg.id);
+      return;
+    }
     if (msg.type === 'discharge') {
       if (sim.inflow) sim.inflow.discharge = msg.value;
       return;
@@ -125,6 +133,7 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
         steps,
         stepMs,
         links: [...sim.linkState].map(([id, st]) => ({ id, ...st })),
+        weirGroups: [...sim.weirGroupFlow].map(([id, discharge]) => ({ id, discharge })),
       };
       post({ type: 'state', buffer: msg.buffer, stats }, [msg.buffer]);
     }

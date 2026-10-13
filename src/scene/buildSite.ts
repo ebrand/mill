@@ -197,6 +197,32 @@ export function createGateModel(width: number, height: number): { group: Group; 
   return { group, plank };
 }
 
+/**
+ * A timber-crib spillway `length` long along local X, `height` tall from its foot (local
+ * y = 0) to the crest, with a falling sheet on its local +Z face (shown when spilling).
+ */
+export function createSpillwayModel(length: number, height: number): { group: Group; sheet: Mesh } {
+  const timber = inkMaterial({ albedo: 0.7, pattern: 'boards', angle: 1.2 });
+  const group = new Group();
+  group.add(box(length, height, 1.4, timber, 0, height / 2, 0));
+  // A sloping apron to break the fall.
+  const apron = box(length, 0.2, 1.8, timber, 0, 0.3, 1.4);
+  apron.rotation.x = 0.6;
+  group.add(apron);
+  const sheet = quad(
+    [
+      [-length / 2, height + 0.12, 0.72],
+      [length / 2, height + 0.12, 0.72],
+      [length / 2, 0.2, 2.1],
+      [-length / 2, 0.2, 2.1],
+    ],
+    fallingWaterMaterial(),
+  );
+  sheet.visible = false;
+  group.add(sheet);
+  return { group, sheet };
+}
+
 /** The original mill's wheel; the returned group spins about its axle (local Z). */
 function wheel(): Group {
   const iron = inkMaterial({ albedo: 0.45, pattern: 'iron' });

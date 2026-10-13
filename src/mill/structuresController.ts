@@ -1,5 +1,6 @@
 import type { GridInfo, SimStats } from '../water/protocol';
-import type { Link } from '../water/shallowWater';
+import type { Link, Weir } from '../water/shallowWater';
+import { headOverCrest, spillwayWeirs } from './spillway';
 import { siteMillStructure } from './siteMill';
 import { type Structure, structureLink, wheelHead } from './structures';
 import { BREASTSHOT, runMill, SASH_SAW, wheelEfficiency, wheelPower } from './wheel';
@@ -39,6 +40,8 @@ export const WORKING_HOURS = 10;
 interface SimHooks {
   setLink: (link: Link) => void;
   removeLink: (id: string) => void;
+  setWeirs: (id: string, weirs: Weir[]) => void;
+  removeWeirs: (id: string) => void;
 }
 
 /** All placed gates and wheels: their settings, their links in the sim, and what they make. */
@@ -71,11 +74,18 @@ export class StructuresController {
   attach(grid: GridInfo, hooks: SimHooks) {
     this.grid = grid;
     this.hooks = hooks;
-    for (const s of this.structures) hooks.setLink(structureLink(grid, s));
+    for (const s of this.structures) this.push(s);
   }
 
   private push(s: Structure) {
-    if (this.grid && this.hooks) this.hooks.setLink(structureLink(this.grid, s));
+    if (!this.grid || !this.hooks) return;
+    if (s.kind === 'spillway') this.hooks.setWeirs(s.id, spillwayWeirs(this.grid, s.intake, s.outlet, s.sill));
+    else this.hooks.setLink(structureLink(this.grid, s));
+  }
+
+  private unpush(s: Structure) {
+    if (s.kind === 'spillway') this.hooks?.removeWeirs(s.id);
+    else this.hooks?.removeLink(s.id);
   }
 
   add(s: Structure) {
@@ -88,7 +98,7 @@ export class StructuresController {
     const s = this.get(id);
     if (!s || s.builtIn) return;
     this.structures = this.structures.filter((x) => x.id !== id);
-    this.hooks?.removeLink(id);
+    this.unpush(s);
     this.views.delete(id);
     this.rebuildSnapshot();
   }
@@ -103,7 +113,7 @@ export class StructuresController {
 
   /** Replace everything (loading a save). */
   restore(structures: Structure[]) {
-    for (const s of this.structures) if (!structures.some((n) => n.id === s.id)) this.hooks?.removeLink(s.id);
+    for (const s of this.structures) if (!structures.some((n) => n.id === s.id)) this.unpush(s);
     this.structures = structures.map((s) => ({ ...s }));
     for (const s of this.structures) this.push(s);
     this.views.clear();
@@ -131,6 +141,13 @@ export class StructuresController {
    * by accrueDays(), on the calendar. */
   update(stats: SimStats, now: number) {
     for (const s of this.structures) {
+      if (s.kind === 'spillway') {
+        const discharge = stats.weirGroups?.find((w) => w.id === s.id)?.discharge ?? 0;
+        // Pond level implied by the flow over the open part of the crest.
+        const length = s.openLength ?? Math.hypot(s.outlet.x - s.intake.x, s.outlet.z - s.intake.z);
+        this.views.set(s.id, { ...this.base(s), discharge, etaFrom: s.sill + headOverCrest(discharge, length), etaTo: 0 });
+        continue;
+      }
       const ls = stats.links.find((l) => l.id === s.id);
       const discharge = ls?.discharge ?? 0;
       const etaFrom = ls?.etaFrom ?? 0;

@@ -113,3 +113,22 @@ export function wheelCost(diameter: number, width: number, pitLength: number, pi
 export function formatDollars(d: number): string {
   return `$${Math.round(d).toLocaleString()}`;
 }
+
+/**
+ * A timber-crib spillway: a crib of squared timber faced with plank and ballasted with stone,
+ * by face area (crest length x height above the lowest ground). Estimates: 300 bd ft and
+ * 0.5 yd3 of stone per m2 of face; 1.5 millwright-days and 3 laborer-days per m of crest.
+ */
+export function spillwayCost(length: number, height: number): Cost {
+  const face = length * Math.max(0.5, height);
+  return priced({
+    laborerDays: 3 * length + face,
+    masonDays: 0,
+    millwrightDays: 1.5 * length,
+    stoneYd3: 0.5 * face,
+    timberBf: 300 * face,
+    ironLb: 20 * length,
+    cutYd3: 0,
+    fillYd3: 0,
+  });
+}
