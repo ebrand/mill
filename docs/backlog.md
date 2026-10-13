@@ -4,10 +4,10 @@ Ideas and features not yet scheduled into a milestone. See [design.md](design.md
 
 | # | Item | Likely milestone | Depends on |
 | --- | --- | --- | --- |
-| 1 | **Quarry stone** for construction | New: resources, before or with M3 | Terrain material layer (ledge rock), construction costs |
-| 2 | **Harvest lumber** for construction | New: resources, before or with M3 | Trees/woodlots on the map, construction costs |
-| 3 | **Plan the dam, headrace and mill** to work out required resources | M2–M3 | Earthwork tools (M2), building catalog, resource types (1, 2) |
-| 4 | **Earthworks for proper headrace flow** | M2 | Water sim (M1), channel tool |
+| 1 | **Quarry stone** for construction | M4 (plan and build) | Terrain material layer (done in M2), construction costs |
+| 2 | **Harvest lumber** for construction | M4 (plan and build) | Trees/woodlots on the map, construction costs |
+| 3 | **Plan the dam, headrace and mill** to work out required resources | M4 (plan and build) | Earthwork tools (done in M2), building catalog, resource types (1, 2) |
+| 4 | **Earthworks for proper headrace flow** | Done in M2–M3 | Channel tool with design levels, capacity and head previews |
 
 ## Notes
 

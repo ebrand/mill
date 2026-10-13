@@ -33,6 +33,29 @@ Think of it as "the book, as a simulation": the sequence the book shows (choose 
 
 The historical heart of mill siting, and the central puzzle: **a race that runs along the contour gains head because the river beside it keeps falling.** That's what the earthwork tools must make satisfying.
 
+## Gameplay flow
+
+One scenario, start to finish. This mirrors how mills were actually built: choose the site, dam the river, dig the race, raise the mill, start the wheel.
+
+1. **Choose a site (regional map).** A river on a period survey map with several candidate reaches. Each shows its trade-offs: fall over the reach, typical summer and spring flow, ledge for dam footings, land price, and distance to timber, stone, roads and market. The regional map is **a choice screen with numbers, not a simulation**; only the chosen site gets the full water sim. Needs seeded site generation.
+2. **Survey.** Work out where the head is before building. A surveyor's level tool: click two points, read the difference in height. The central puzzle starts here: a race along the contour gains head while the river falls away beside it.
+3. **Plan.** Lay out dam, race, wheel pit and mill as **ghost plans** drawn like engineering drawings. The plan totals earth moved, stone, timber and labor days. Nothing is built yet, so several layouts can be tried cheaply.
+4. **Build over time.** Crews work in days. Stone comes from a quarry and timber from a woodlot. **The river doesn't stop during construction**, so order matters: dig the race and pit first, then close the dam in summer low water. A half-built dam in the spring freshet is the classic disaster.
+5. **Commission.** Open the head gate, watch the race fill, see the wheel's first turn. Then test and tune: is the fall what the survey promised, is the wheel the right size, how wide should the gate be?
+6. **Operate.** Seasons come. Pond management is the skill: hold water for the summer drought, keep gates and spillway ready for the freshet. Machines turn power into goods, goods into money, money into expansion.
+7. **Grow through the century.** Raise the dam, lengthen the race, add machines, replace the wheel with a turbine, add steam backup. Each era's scenario starts from what the last era left.
+
+### Pacing (the two clocks)
+
+Different phases need different clocks:
+
+- **Planning:** paused.
+- **Construction:** calendar days pass quickly; the water sim catches up only on what changed.
+- **Commissioning and dramatic events** (fills, floods, breaches): near real time, where watching the water is the point.
+- **Operating through the year:** fast calendar time, probably with a cheap pond-and-flow model standing in for the full sim, dropping back to the full sim when you zoom in or something happens.
+
+The main pacing risk is tedium: laying out works and waiting for crews can feel like homework. Counter it with good fast-forward, strong previews, and something to watch during waits (the river rising against a half-built dam).
+
 ## Grids
 
 You asked what kind of grid, if any, works best. Different systems want different answers:
@@ -184,12 +207,15 @@ Each ends with something you can see or play, and its tests passing. **M0 and M3
    *Status:* sim, worker, LIC water, weirs, speed controls done. Valley generation is still the hand-shaped M0 valley (not seeded).
 2. **M2: earthworks.** Channel, embankment and brush tools with previews; cut and fill accounting; water responds live. Pond fills to a spillway. Tests: tool geometry, conservation with structures.
 3. **M3: first mill.** Wheel pit with head gate (orifice link), one wheel type, line shaft, sawmill, lumber output, hp readout. *Exit: is siting and building the first mill fun?* Rethink before going on if not.
-   *Status (stage A):* the site's existing mill works. A head gate (orifice/weir law) feeds the flume, a breastshot wheel turns P = η·ρ·g·Q·H into horsepower, the drivetrain drives a sash saw (10 hp, 120 board feet an hour, both estimates), and lumber accrues over simulated time. Gate and lumber are saved. Stage B, player-built gates and wheels, is next.
-4. **M4: drivetrain and production.** Component catalog, belts and clutches, proportional slowdown, cotton chain, market and ledger.
-5. **M5: seasons and hazards.** Discharge over the year, droughts, floods, ice, dam overtopping and breach, construction under time pressure.
-6. **M6: scenarios.** Scenario framework, the eras, technology progression, objectives.
-7. **M7: people.** Owner, manager, workers, village, wages.
-8. **Later: region.** Multiple mills on one river, water rights.
+   *Status (stage A):* the site's existing mill works. A head gate (orifice/weir law) feeds the flume, a breastshot wheel turns P = η·ρ·g·Q·H into horsepower, the drivetrain drives a sash saw (10 hp, 120 board feet an hour, both estimates), and lumber accrues over simulated time. Gate and lumber are saved. 
+   *Status (stage B):* players place head gates (through dams or banks) and breastshot wheels with two clicks each, with a live preview of levels, head, flow, horsepower and warnings. A wheel digs its own pit behind a breast of earth. Gates model drowned flow, since a headrace gate usually is. Structures are listed in a "Mill works" panel with their own gates and output, and they're saved. A mill built from scratch on the south bank (gate, about 40 m headrace, wheel into the river) runs at about 38 hp.
+4. **M4: plan and build.** Ghost plans for every tool (channel, bank, gate, wheel, mill building) with totals for earth, stone, timber and labor days; a surveyor's level tool; construction over calendar days by crews; quarry and woodlot (backlog #1, #2); construction order and the river during it. Money as a simple budget. *Exit: does building feel like a series of decisions rather than clicks?*
+5. **M5: machines and production.** Mill building placement, drivetrain components (line shafts, belts, clutches), machines with proportional slowdown, the sawmill then the cotton chain, market and ledger.
+6. **M6: seasons and hazards.** Discharge over the year, droughts, freshets, ice, dam overtopping and breach. The calendar clock and the cheap pond model for fast operation (see Pacing).
+7. **M7: site generation and the regional map.** Seeded valleys with ledge, timber and stone; a regional map of candidate reaches with their trade-offs; choosing a site starts a scenario.
+8. **M8: scenarios.** The eras, technology progression (wheel types, turbines, steam), objectives, inherited works between eras.
+9. **M9: people.** Owner, manager, workers, village, wages.
+10. **Later: region as play.** Several mills on one river, neighbours upstream and down, water rights.
 
 ## Risks
 
