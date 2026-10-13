@@ -66,7 +66,8 @@ export type ToWorker =
   | { type: 'step'; seconds: number; buffer: ArrayBuffer }
   | { type: 'discharge'; value: number }
   /** Add or replace a structure link (gate opening changes go through here too). */
-  | { type: 'link'; link: Link };
+  | { type: 'link'; link: Link }
+  | { type: 'unlink'; id: string };
 
 export type FromWorker =
   | { type: 'ready'; grid: GridInfo; bed: Float32Array }

@@ -38,7 +38,7 @@ export function ChannelPanel({ controller }: { controller: ChannelController }) 
             Length {s.length.toFixed(0)} m · bed falls {(s.fall * 100).toFixed(0)} cm
           </div>
           <div>
-            Starts from {s.startsInWater ? 'water' : 'dry ground'} at {s.startLevel?.toFixed(2)} m
+            Starts from {s.startsInWater ? 'water' : s.startsNearWater ? 'the water nearby' : 'dry ground'} at {s.startLevel?.toFixed(2)} m
           </div>
           <div>
             Carries {s.capacity.toFixed(1)} m³/s at {p.depth.toFixed(1)} m deep

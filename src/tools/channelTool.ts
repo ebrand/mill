@@ -13,6 +13,9 @@ import {
 } from './channel';
 import { normalAt, type PathSource } from './pathView';
 
+/** How far from a dry first point to look for the water a channel will be fed from, m. */
+const NEAR_WATER_RADIUS = 12;
+
 export type ChannelParams = Omit<ChannelPlan, 'points' | 'startBed'>;
 
 export interface ChannelSection {
@@ -31,6 +34,8 @@ export interface ChannelSummary {
   /** Water level the channel starts from (the pond if the first point is in it). */
   startLevel: number | null;
   startsInWater: boolean;
+  /** The first point is dry but there's water close by (e.g. a pond across the dam). */
+  startsNearWater: boolean;
   /** Design discharge at the design depth, m^3/s. */
   capacity: number;
   cut: number;
@@ -69,7 +74,7 @@ export class ChannelController implements PathSource {
   getSnapshot = () => this.summary;
 
   private emptySummary(): ChannelSummary {
-    return { points: 0, params: { ...this.params }, length: 0, fall: 0, startLevel: null, startsInWater: false, capacity: 0, cut: 0, fill: 0, headAtEnd: null, section: null };
+    return { points: 0, params: { ...this.params }, length: 0, fall: 0, startLevel: null, startsInWater: false, startsNearWater: false, capacity: 0, cut: 0, fill: 0, headAtEnd: null, section: null };
   }
 
   private changed() {
@@ -120,7 +125,11 @@ export class ChannelController implements PathSource {
     const p0 = this.points[0];
     const w0 = water?.surfaceAt(p0.x, p0.z);
     const startsInWater = !!w0 && w0.depth > 0.05;
-    const startLevel = startsInWater ? w0!.eta : field.heightAt(p0.x, p0.z);
+    // A headrace usually starts just past a gate, on dry ground beside the pond it draws
+    // from; design it to that water level, not the ground (which wastes head).
+    const nearby = startsInWater ? null : (water?.highestWaterNear(p0.x, p0.z, NEAR_WATER_RADIUS) ?? null);
+    const startsNearWater = nearby !== null && nearby > field.heightAt(p0.x, p0.z) - this.params.depth;
+    const startLevel = startsInWater ? w0!.eta : startsNearWater ? nearby! : field.heightAt(p0.x, p0.z);
     const plan: ChannelPlan = { ...this.params, points: this.points, startBed: startLevel - this.params.depth };
     const result = planChannel(field, plan);
     const end = this.points[this.points.length - 1];
@@ -135,6 +144,7 @@ export class ChannelController implements PathSource {
       fall: result.fall,
       startLevel,
       startsInWater,
+      startsNearWater,
       capacity: manningCapacity(plan.bottomWidth, plan.sideSlope, plan.depth, plan.bedSlope),
       cut: result.cut,
       fill: result.fill,

@@ -1,14 +1,16 @@
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GameActions } from './game/actions';
-import { MillController } from './mill/millController';
+import { PlacementController } from './mill/placement';
+import { StructuresController } from './mill/structuresController';
 import { isTyping } from './debug/devExpose';
 import { ChannelController } from './tools/channelTool';
 import { EmbankmentController } from './tools/embankmentTool';
 import type { Tool } from './tools/earthBrush';
 import { ChannelPanel } from './ui/ChannelPanel';
 import { EmbankmentPanel } from './ui/EmbankmentPanel';
-import { MillPanel } from './ui/MillPanel';
+import { PlacementPanel } from './ui/PlacementPanel';
+import { StructuresPanel } from './ui/StructuresPanel';
 import { WebGPURenderer } from 'three/webgpu';
 import { StyleTest, type WaterHud } from './scene/StyleTest';
 
@@ -34,6 +36,8 @@ const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'fill', label: 'Fill', key: 'KeyV' },
   { id: 'channel', label: 'Channel', key: 'KeyN' },
   { id: 'bank', label: 'Bank', key: 'KeyB' },
+  { id: 'gate', label: 'Gate', key: 'KeyU' },
+  { id: 'wheel', label: 'Wheel', key: 'KeyW' },
 ];
 
 export function App() {
@@ -42,7 +46,9 @@ export function App() {
   const channel = useMemo(() => new ChannelController(), []);
   const bank = useMemo(() => new EmbankmentController(), []);
   const actions = useMemo(() => new GameActions(), []);
-  const mill = useMemo(() => new MillController(), []);
+  const structures = useMemo(() => new StructuresController(), []);
+  const gatePlan = useMemo(() => new PlacementController('gate'), []);
+  const wheelPlan = useMemo(() => new PlacementController('wheel'), []);
   const [showMill, setShowMill] = useState(true);
   const status = useSyncExternalStore(actions.subscribe, actions.getSnapshot);
   useEffect(() => {
@@ -71,11 +77,22 @@ export function App() {
           return renderer;
         }}
       >
-        <StyleTest onWater={onWater} tool={tool} channel={channel} bank={bank} actions={actions} mill={mill} />
+        <StyleTest
+          onWater={onWater}
+          tool={tool}
+          channel={channel}
+          bank={bank}
+          actions={actions}
+          structures={structures}
+          gatePlan={gatePlan}
+          wheelPlan={wheelPlan}
+        />
       </Canvas>
       {tool === 'channel' && <ChannelPanel controller={channel} />}
       {tool === 'bank' && <EmbankmentPanel controller={bank} />}
-      {showMill && <MillPanel mill={mill} />}
+      {tool === 'gate' && <PlacementPanel controller={gatePlan} />}
+      {tool === 'wheel' && <PlacementPanel controller={wheelPlan} />}
+      {showMill && <StructuresPanel controller={structures} />}
       <div style={{ position: 'fixed', top: 14, left: 16, display: 'flex', gap: 6, font: '14px Georgia, serif' }}>
         {TOOLS.map((t) => (
           <button
@@ -155,7 +172,7 @@ export function App() {
         <br />
         River: 0 pause · 1 real time · 2 4× · 3 16× · [ ] inflow · R restart dry · F restart filled
         <br />
-        Earth: G dig · V fill · N channel · B bank · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
+        Earth: G dig · V fill · N channel · B bank · U gate · W wheel · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
       </div>
     </>
   );

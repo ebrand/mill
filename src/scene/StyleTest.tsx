@@ -14,7 +14,10 @@ import type { SimStats } from '../water/protocol';
 import { WaterClient } from '../water/WaterClient';
 import { createWaterSurface } from '../water/waterSurface';
 import type { GameActions } from '../game/actions';
-import type { MillController } from '../mill/millController';
+import type { PlacementController } from '../mill/placement';
+import { MILL_LINK_ID, siteMillStructure } from '../mill/siteMill';
+import { StructureMeshes } from '../mill/structureMeshes';
+import type { StructuresController } from '../mill/structuresController';
 import { incompatibility, readSave, SAVE_VERSION, writeSave } from '../save/saveGame';
 import { EarthLedger, EditHistory } from '../world/editHistory';
 import { createSiteField } from '../world/siteField';
@@ -46,14 +49,18 @@ export function StyleTest({
   channel,
   bank,
   actions,
-  mill,
+  structures,
+  gatePlan,
+  wheelPlan,
 }: {
   onWater?: (hud: WaterHud) => void;
   tool?: Tool;
   channel?: ChannelController;
   bank?: EmbankmentController;
   actions?: GameActions;
-  mill?: MillController;
+  structures?: StructuresController;
+  gatePlan?: PlacementController;
+  wheelPlan?: PlacementController;
 }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
@@ -121,7 +128,7 @@ export function StyleTest({
       if (disposed || !client.grid || !client.texture) return;
       surface = createWaterSurface(client.grid, client.texture);
       scene.add(surface.mesh);
-      mill?.attach(client.grid, (link) => client.setLink(link));
+      structures?.attach(client.grid, { setLink: (link) => client.setLink(link), removeLink: (id) => client.removeLink(id) });
       devExpose({ water: client, waterParams: surface.params });
     });
 
@@ -142,7 +149,7 @@ export function StyleTest({
       client.dispose();
       water.current = null;
     };
-  }, [scene, field, mill]);
+  }, [scene, field, structures]);
 
   // Earthworks brush. Edits reach the water sim through the client, whichever is current.
   useEffect(() => {
@@ -252,7 +259,7 @@ export function StyleTest({
           discharge: client?.discharge ?? 0,
           cut: ledger.cut,
           fill: ledger.fill,
-          mill: mill ? { gate: mill.gate, lumber: mill.lumber } : undefined,
+          structures: structures?.structures.map((s) => ({ ...s })),
         });
         actions.setStatus({ message: `Saved at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, hasSave: true });
       } catch (err) {
@@ -280,7 +287,10 @@ export function StyleTest({
         channel?.clear();
         bank?.clear();
         water.current?.restart({ prefill: save.depth === null, depth: save.depth ?? undefined, time: save.simTime, discharge: save.discharge });
-        if (mill && save.mill) mill.restore(save.mill.gate, save.mill.lumber);
+        if (structures) {
+          if (save.structures) structures.restore(save.structures);
+          else if (save.mill) structures.restore([siteMillStructure(save.mill.gate, save.mill.lumber)]);
+        }
         refreshUndo();
         actions.setStatus({ message: `Loaded game saved ${new Date(save.savedAt).toLocaleString()}` });
       } catch (err) {
@@ -302,7 +312,57 @@ export function StyleTest({
     window.addEventListener('keydown', onKey);
     devExpose({ actions, history, ledger });
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions, field, site, history, ledger, channel, bank, mill]);
+  }, [actions, field, site, history, ledger, channel, bank, structures]);
+
+  // Placing gates and wheels, and drawing the ones built.
+  const gateView = useRef<PathView | null>(null);
+  const wheelView = useRef<PathView | null>(null);
+  const structureMeshes = useRef<StructureMeshes | null>(null);
+  useEffect(() => {
+    if (!structures) return;
+    const meshes = new StructureMeshes(structures, field);
+    structureMeshes.current = meshes;
+    scene.add(meshes.group);
+    const views: PathView[] = [];
+    for (const [plan, ref] of [
+      [gatePlan, gateView],
+      [wheelPlan, wheelView],
+    ] as const) {
+      if (!plan) continue;
+      plan.env = {
+        field,
+        water: () => water.current,
+        onBuild: (s) => structures.add(s),
+        beforeDig: (rect, label) => {
+          history.begin(label);
+          history.touch(rect);
+        },
+        onDig: (pit) => {
+          history.record(pit.cut, 0);
+          history.end();
+          applyRect(pit.rect);
+          refreshUndo();
+        },
+      };
+      const view = new PathView(plan, field, renderer.domElement, () => camera);
+      ref.current = view;
+      views.push(view);
+      scene.add(view.group);
+    }
+    devExpose({ structures, gatePlan, wheelPlan });
+    return () => {
+      scene.remove(meshes.group);
+      structureMeshes.current = null;
+      for (const v of views) {
+        scene.remove(v.group);
+        v.dispose();
+      }
+      gateView.current = null;
+      wheelView.current = null;
+      if (gatePlan) gatePlan.env = null;
+      if (wheelPlan) wheelPlan.env = null;
+    };
+  }, [structures, gatePlan, wheelPlan, field, scene, renderer, camera, history]);
 
   // With a tool active, the left button works the ground; orbit moves to the right button.
   useEffect(() => {
@@ -352,11 +412,21 @@ export function StyleTest({
   const lastStats = useRef<SimStats | null>(null);
   useFrame((_, delta) => {
     inkTime.value += delta;
-    // The wheel turns with the water through it: about 7 rpm at full bucket capacity.
-    const flow = mill?.getSnapshot().discharge ?? 0;
+    // The old mill's wheel turns with the water through it: about 7 rpm at full bucket capacity.
+    const flow = structures?.dischargeOf(MILL_LINK_ID) ?? 0;
     const speed = water.current?.speed ?? 1;
     site.wheelSpin.rotation.z += delta * speed * 0.75 * Math.min(1, flow / 2.5);
     site.flumeWater.visible = flow > 0.05;
+    structureMeshes.current?.update(delta, speed);
+    for (const [plan, view, kind] of [
+      [gatePlan, gateView.current, 'gate'],
+      [wheelPlan, wheelView.current, 'wheel'],
+    ] as const) {
+      if (!plan || !view) continue;
+      plan.update(performance.now());
+      view.active = tool === kind;
+      view.update();
+    }
     brush.current?.update(delta, camera);
     if (channel) channel.update(performance.now());
     if (channelView.current) {
@@ -371,9 +441,9 @@ export function StyleTest({
     const client = water.current;
     if (client) {
       client.update(delta);
-      if (mill && client.stats && client.stats !== lastStats.current) {
+      if (structures && client.stats && client.stats !== lastStats.current) {
         lastStats.current = client.stats;
-        mill.update(client.stats, performance.now());
+        structures.update(client.stats, performance.now());
       }
       site.spillSheet.visible = (client.stats?.spill ?? 0) > 0.2;
       hudTimer.current += delta;

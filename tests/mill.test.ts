@@ -15,17 +15,31 @@ describe('gate discharge', () => {
   it('orifice flow once the water covers the gate lip', () => {
     // 2.4 m wide, 0.4 m open, sill at 0, water at 1.5: Q = 0.6 * 2.4 * 0.4 * sqrt(2g * 1.3)
     const expected = 0.6 * 2.4 * 0.4 * Math.sqrt(2 * G * 1.3);
-    expect(gateDischarge(1.5, 0, 0.4, 2.4)).toBeCloseTo(expected, 9);
+    expect(gateDischarge(1.5, -Infinity, 0, 0.4, 2.4)).toBeCloseTo(expected, 9);
+  });
+
+  it('a drowned gate passes less as the water behind it rises, and nothing when level', () => {
+    // Drowned orifice: head is the difference of levels.
+    const drowned = gateDischarge(2.0, 1.6, 0, 0.4, 2);
+    expect(drowned).toBeCloseTo(0.6 * 2 * 0.4 * Math.sqrt(2 * G * 0.4), 9);
+    expect(drowned).toBeLessThan(gateDischarge(2.0, -Infinity, 0, 0.4, 2));
+    let prev = Infinity;
+    for (let down = -1; down < 2; down += 0.02) {
+      const q = gateDischarge(2.0, down, 0, 0.4, 2);
+      expect(q).toBeLessThanOrEqual(prev + 1e-12);
+      prev = q;
+    }
+    expect(gateDischarge(2.0, 2.0, 0, 0.4, 2)).toBe(0);
   });
 
   it('weir flow over the sill when the water is below the lip, and continuous between', () => {
-    expect(gateDischarge(0.3, 0, 1.0, 2)).toBeCloseTo(1.7 * 2 * Math.pow(0.3, 1.5), 9);
-    expect(gateDischarge(-0.1, 0, 0.5, 2)).toBe(0);
-    expect(gateDischarge(1, 0, 0, 2)).toBe(0);
+    expect(gateDischarge(0.3, -Infinity, 0, 1.0, 2)).toBeCloseTo(1.7 * 2 * Math.pow(0.3, 1.5), 9);
+    expect(gateDischarge(-0.1, -Infinity, 0, 0.5, 2)).toBe(0);
+    expect(gateDischarge(1, -Infinity, 0, 0, 2)).toBe(0);
     // No jump anywhere as the water rises past the lip.
     let prev = 0;
     for (let eta = 0.01; eta < 3; eta += 0.01) {
-      const q = gateDischarge(eta, 0, 0.5, 2);
+      const q = gateDischarge(eta, -Infinity, 0, 0.5, 2);
       expect(q).toBeGreaterThanOrEqual(prev);
       expect(q - prev).toBeLessThan(0.08);
       prev = q;
@@ -82,7 +96,7 @@ describe('links in the water sim', () => {
     const v0 = sim.totalVolume();
     sim.advance(2);
     const st = sim.linkState.get('gate')!;
-    const expected = gateDischarge(st.etaFrom, 0.5, 0.3, 1.5);
+    const expected = gateDischarge(st.etaFrom, st.etaTo, 0.5, 0.3, 1.5);
     expect(st.discharge).toBeCloseTo(expected, 2);
     sim.advance(600);
     expect(sim.totalVolume()).toBeCloseTo(v0, 6);

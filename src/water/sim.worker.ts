@@ -100,6 +100,10 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       sim.setLink(msg.link);
       return;
     }
+    if (msg.type === 'unlink') {
+      sim.removeLink(msg.id);
+      return;
+    }
     if (msg.type === 'discharge') {
       if (sim.inflow) sim.inflow.discharge = msg.value;
       return;

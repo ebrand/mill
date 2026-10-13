@@ -151,12 +151,14 @@ function flume(): Group {
   return group;
 }
 
-/** Breastshot wheel; the returned group spins about its axle (local Z). */
-function wheel(): Group {
+/**
+ * A breastshot wheel of radius r and width w, centred on the origin with its axle along
+ * local Z. Rotate `spin` about Z to turn it.
+ */
+export function createWheelModel(r: number, w: number): { group: Group; spin: Group } {
   const iron = inkMaterial({ albedo: 0.45, pattern: 'iron' });
   const timber = inkMaterial({ albedo: 0.7, pattern: 'boards', angle: 0.4 });
   const spin = new Group();
-  const { radius: r, width: w } = WHEEL;
   for (const side of [-1, 1]) {
     const rim = new Mesh(new TorusGeometry(r, 0.09, 8, 64), iron);
     rim.position.z = (side * w) / 2;
@@ -168,16 +170,40 @@ function wheel(): Group {
       spin.add(spoke);
     }
   }
-  const buckets = 28;
+  const buckets = Math.max(16, Math.round(r * 11.7));
   for (let i = 0; i < buckets; i++) {
     const a = (i / buckets) * Math.PI * 2;
-    const bucket = box(0.06, 0.55, w, timber, Math.cos(a) * (r - 0.25), Math.sin(a) * (r - 0.25), 0);
+    const bucket = box(0.06, Math.min(0.55, r * 0.23), w, timber, Math.cos(a) * (r - 0.25), Math.sin(a) * (r - 0.25), 0);
     bucket.rotation.z = a + 0.35;
     spin.add(bucket);
   }
+  const axle = new Mesh(new CylinderGeometry(0.15, 0.15, w + 1.2, 16), iron);
+  axle.rotation.x = Math.PI / 2;
+  axle.castShadow = true;
+  const group = new Group();
+  group.add(spin, axle);
+  return { group, spin };
+}
+
+/** A sluice gate: two posts and a plank raised `opening` above the sill. Plank is `plank`. */
+export function createGateModel(width: number, height: number): { group: Group; plank: Mesh } {
+  const timber = inkMaterial({ albedo: 0.7, pattern: 'boards', angle: 1.2 });
+  const group = new Group();
+  for (const side of [-1, 1]) group.add(box(0.3, height, 0.3, timber, 0, height / 2, (side * (width + 0.3)) / 2));
+  group.add(box(0.3, 0.25, width + 0.9, timber, 0, height + 0.12, 0));
+  const plank = box(0.12, Math.min(1.2, height * 0.6), width, timber, 0, 0, 0);
+  group.add(plank);
+  return { group, plank };
+}
+
+/** The original mill's wheel; the returned group spins about its axle (local Z). */
+function wheel(): Group {
+  const iron = inkMaterial({ albedo: 0.45, pattern: 'iron' });
+  const { radius: r, width: w } = WHEEL;
+  const model = createWheelModel(r, w);
   const holder = new Group();
   holder.position.set(WHEEL.x, WHEEL.y, WHEEL.z);
-  holder.add(spin);
+  holder.add(model.group);
   // Axle runs from the wheel through the mill's south wall to the pit gear inside.
   const axleLen = MILL.z0 + 1.6 - (WHEEL.z - w / 2 - 0.3);
   const axle = new Mesh(new CylinderGeometry(0.15, 0.15, axleLen, 16), iron);
@@ -186,7 +212,7 @@ function wheel(): Group {
   axle.castShadow = true;
   const group = new Group();
   group.add(holder, axle);
-  group.userData.spin = spin;
+  group.userData.spin = model.spin;
   return group;
 }
 

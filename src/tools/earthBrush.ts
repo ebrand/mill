@@ -5,7 +5,7 @@ import type { EditHistory } from '../world/editHistory';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { TerrainMeshes } from '../world/terrainMesh';
 
-export type Tool = 'look' | 'dig' | 'fill' | 'channel' | 'bank';
+export type Tool = 'look' | 'dig' | 'fill' | 'channel' | 'bank' | 'gate' | 'wheel';
 
 const RING_SEGMENTS = 64;
 /** Change in ground height per second at the brush center, in meters. */

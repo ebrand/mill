@@ -153,6 +153,21 @@ export class WaterClient {
     return { eta: data[o], depth: depth > 0 ? depth : 0 };
   }
 
+  /** Highest water surface among wet cells within `radius` (e.g. the pond a gate draws on). */
+  highestWaterNear(x: number, z: number, radius: number): number | null {
+    const g = this.grid;
+    if (!g) return null;
+    let best: number | null = null;
+    for (let dz = -radius; dz <= radius; dz += g.dx) {
+      for (let dx = -radius; dx <= radius; dx += g.dx) {
+        if (dx * dx + dz * dz > radius * radius) continue;
+        const w = this.surfaceAt(x + dx, z + dz);
+        if (w && w.depth > 0.05 && (best === null || w.eta > best)) best = w.eta;
+      }
+    }
+    return best;
+  }
+
   /** Lowest water surface among wet cells within `radius` of a point (e.g. the tailwater). */
   lowestWaterNear(x: number, z: number, radius: number): number | null {
     const g = this.grid;
@@ -181,6 +196,11 @@ export class WaterClient {
   setLink(link: Link) {
     this.links.set(link.id, link);
     this.send(this.worker, { type: 'link', link });
+  }
+
+  removeLink(id: string) {
+    this.links.delete(id);
+    this.send(this.worker, { type: 'unlink', id });
   }
 
   setDischarge(value: number) {

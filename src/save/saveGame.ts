@@ -2,6 +2,7 @@
 // game doesn't have to refill its ponds. Stored in IndexedDB, which keeps typed arrays as
 // binary (no base64, no 5 MB localStorage ceiling).
 
+import type { Structure } from '../mill/structures';
 import type { FieldSpec, TerrainField } from '../world/terrainField';
 
 export const SAVE_VERSION = 1;
@@ -18,8 +19,10 @@ export interface SaveData {
   discharge: number;
   cut: number;
   fill: number;
-  /** The mill's head gate and lumber cut (absent in saves from before M3). */
+  /** The old mill's head gate and lumber (saves from M3 stage A, before structures). */
   mill?: { gate: number; lumber: number };
+  /** All gates and wheels (saves from M3 stage B on). */
+  structures?: Structure[];
 }
 
 /** Why a save can't be loaded into this field, or null if it can. */

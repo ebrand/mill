@@ -21,6 +21,8 @@
 export const G = 9.81;
 /** Below this depth a cell is treated as dry. */
 export const DRY = 1e-4;
+/** A link intake/outlet cell counts as wet above this depth, m. */
+const LINK_WET = 0.01;
 
 export interface GridSpec {
   nx: number;
@@ -57,16 +59,22 @@ export interface Weir {
 /**
  * A gate: weir flow over its sill while the water is below the gate's lip, orifice flow
  * under the lip once it's covered. Taking the smaller of the two keeps the change-over
- * continuous. Q in m^3/s for a gate `width` wide with its bottom (sill) at `sill` and
- * raised `opening` meters; free discharge (tailwater below the opening) is assumed.
+ * continuous. Both account for the water downstream: a gate into a headrace is usually
+ * drowned, and passes less as the race fills (Villemonte for the weir regime, head =
+ * difference of levels for a drowned orifice). Q in m^3/s for a gate `width` wide, sill
+ * at `sill`, raised `opening` meters. Pass etaDown = -Infinity for free discharge.
  */
-export function gateDischarge(etaUp: number, sill: number, opening: number, width: number, cd = 0.6, cWeir = 1.7): number {
+export function gateDischarge(etaUp: number, etaDown: number, sill: number, opening: number, width: number, cd = 0.6, cWeir = 1.7): number {
   const H = etaUp - sill;
-  if (H <= 0 || opening <= 0 || width <= 0) return 0;
-  const weir = cWeir * width * H * Math.sqrt(H);
+  if (H <= 0 || opening <= 0 || width <= 0 || etaDown >= etaUp) return 0;
+  let weir = cWeir * width * H * Math.sqrt(H);
+  const Hd = etaDown - sill;
+  if (Hd > 0) weir *= Math.pow(Math.max(0, 1 - Math.pow(Hd / H, 1.5)), 0.385);
   // Orifice flow only once the water covers the lip; below that the gate is just a sill.
   if (H <= opening) return weir;
-  const orifice = cd * width * opening * Math.sqrt(2 * G * (H - opening / 2));
+  // Free: head to the middle of the opening. Drowned: head is the difference of levels.
+  const drive = etaUp - Math.max(sill + opening / 2, etaDown);
+  const orifice = cd * width * opening * Math.sqrt(2 * G * Math.max(0, drive));
   return Math.min(weir, orifice);
 }
 
@@ -370,20 +378,36 @@ export class ShallowWater {
     const { bed, depth } = this;
     for (const link of this.links.values()) {
       const state = this.linkState.get(link.id)!;
+      // Water levels average over *wet* cells only: an intake disk often takes in dry bank
+      // cells too, and counting their ground as "water level" made a race look fuller than
+      // it was (blocking its gate and overstating a wheel's head).
       let available = 0;
-      let etaFrom = 0;
+      let etaFrom = -Infinity;
+      let wetFrom = 0;
+      let sumFrom = 0;
       for (const c of link.from) {
         available += depth[c] * area;
-        etaFrom += bed[c] + depth[c];
+        if (depth[c] > LINK_WET) {
+          sumFrom += bed[c] + depth[c];
+          wetFrom++;
+        }
       }
-      etaFrom /= Math.max(link.from.length, 1);
-      let etaTo = 0;
-      for (const c of link.to) etaTo += bed[c] + depth[c];
-      etaTo /= Math.max(link.to.length, 1);
+      if (wetFrom > 0) etaFrom = sumFrom / wetFrom;
+      let wetTo = 0;
+      let sumTo = 0;
+      let lowestTo = Infinity;
+      for (const c of link.to) {
+        lowestTo = Math.min(lowestTo, bed[c]);
+        if (depth[c] > LINK_WET) {
+          sumTo += bed[c] + depth[c];
+          wetTo++;
+        }
+      }
+      // A dry outlet: the water would land on its lowest cell.
+      const etaTo = wetTo > 0 ? sumTo / wetTo : lowestTo;
 
-      let q = Math.min(gateDischarge(etaFrom, link.sill, link.opening, link.width), link.maxDischarge);
-      // Water can't run uphill through a structure.
-      if (etaTo >= etaFrom) q = 0;
+      // (gateDischarge is zero when the outlet is as high as the intake: no flow uphill.)
+      const q = Math.min(gateDischarge(etaFrom, etaTo, link.sill, link.opening, link.width), link.maxDischarge);
       let volume = Math.min(q * dt, available * 0.9);
       if (volume <= 0) volume = 0;
       if (volume > 0) {
@@ -394,7 +418,8 @@ export class ShallowWater {
         for (const c of link.to) depth[c] += add;
       }
       state.discharge = volume / dt;
-      state.etaFrom = etaFrom;
+      // Report a dry intake as its lowest ground, so readouts stay finite.
+      state.etaFrom = Number.isFinite(etaFrom) ? etaFrom : Math.min(...link.from.map((c) => bed[c]));
       state.etaTo = etaTo;
     }
   }
