@@ -1,5 +1,5 @@
 import type { WaterClient } from '../water/WaterClient';
-import type { TerrainField } from '../world/terrainField';
+import type { Rect, TerrainField } from '../world/terrainField';
 import {
   applyChannel,
   bedAt,
@@ -43,6 +43,8 @@ export interface ChannelSummary {
 export interface ChannelEnv {
   field: TerrainField;
   water: () => WaterClient | null;
+  /** Called just before a committed channel changes the field (for undo). */
+  beforeCommit: (rect: Rect, label: string) => void;
   /** Called after the field has been changed by a committed channel. */
   onCommit: (result: ChannelResult) => void;
 }
@@ -177,6 +179,7 @@ export class ChannelController implements PathSource {
   /** Dig it: write the preview into the terrain and hand it to the scene. */
   commit() {
     if (!this.env || !this.result) return null;
+    this.env.beforeCommit(this.result.rect, 'channel');
     applyChannel(this.env.field, this.result);
     const result = this.result;
     this.env.onCommit(result);

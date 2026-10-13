@@ -39,7 +39,18 @@ export interface BedRect {
 }
 
 export type ToWorker =
-  | { type: 'init'; prefill: boolean; discharge: number; grid: GridInfo; heights: Float32Array }
+  | {
+      type: 'init';
+      prefill: boolean;
+      discharge: number;
+      grid: GridInfo;
+      heights: Float32Array;
+      /** Saved water depths to start from (overrides prefill), and the sim time they were at. */
+      depth?: Float32Array;
+      time?: number;
+    }
+  /** Ask for the current water depths, e.g. to save the game. */
+  | { type: 'snapshot'; id: number }
   /** New terrain heights for a rectangle of cells (row-major, (i1 - i0) wide). */
   | { type: 'bed'; rect: BedRect; heights: Float32Array }
   | { type: 'step'; seconds: number; buffer: ArrayBuffer }
@@ -48,4 +59,5 @@ export type ToWorker =
 export type FromWorker =
   | { type: 'ready'; grid: GridInfo; bed: Float32Array }
   | { type: 'state'; buffer: ArrayBuffer; stats: SimStats }
+  | { type: 'snapshot'; id: number; depth: Float32Array; time: number }
   | { type: 'error'; message: string };

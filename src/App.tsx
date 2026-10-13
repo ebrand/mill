@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { GameActions } from './game/actions';
 import { isTyping } from './debug/devExpose';
 import { ChannelController } from './tools/channelTool';
 import { EmbankmentController } from './tools/embankmentTool';
@@ -38,6 +39,8 @@ export function App() {
   const [tool, setTool] = useState<Tool>('look');
   const channel = useMemo(() => new ChannelController(), []);
   const bank = useMemo(() => new EmbankmentController(), []);
+  const actions = useMemo(() => new GameActions(), []);
+  const status = useSyncExternalStore(actions.subscribe, actions.getSnapshot);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Typing in the channel panel's fields shouldn't switch tools.
@@ -63,7 +66,7 @@ export function App() {
           return renderer;
         }}
       >
-        <StyleTest onWater={onWater} tool={tool} channel={channel} bank={bank} />
+        <StyleTest onWater={onWater} tool={tool} channel={channel} bank={bank} actions={actions} />
       </Canvas>
       {tool === 'channel' && <ChannelPanel controller={channel} />}
       {tool === 'bank' && <EmbankmentPanel controller={bank} />}
@@ -85,6 +88,35 @@ export function App() {
             {t.label}
           </button>
         ))}
+        <span style={{ width: 12 }} />
+        {(
+          [
+            ['Undo', () => actions.undo(), !status.undoLabel, status.undoLabel ? `Undo ${status.undoLabel} (Ctrl/Cmd+Z)` : 'Nothing to undo'],
+            ['Redo', () => actions.redo(), !status.redoLabel, status.redoLabel ? `Redo ${status.redoLabel} (Ctrl/Cmd+Shift+Z)` : 'Nothing to redo'],
+            ['Save', () => actions.save(), false, 'Save the game (Ctrl/Cmd+S)'],
+            ['Load', () => actions.load(), !status.hasSave, status.hasSave ? 'Load the saved game' : 'No saved game yet'],
+          ] as const
+        ).map(([label, run, disabled, title]) => (
+          <button
+            key={label}
+            onClick={run}
+            disabled={disabled}
+            title={title}
+            style={{
+              font: 'inherit',
+              padding: '4px 12px',
+              color: '#2b2620',
+              background: '#f1e9d8',
+              border: '1px solid #2b2620',
+              borderRadius: 2,
+              cursor: disabled ? 'default' : 'pointer',
+              opacity: disabled ? 0.45 : 1,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+        {status.message && <span style={{ alignSelf: 'center', marginLeft: 8, color: '#2b2620' }}>{status.message}</span>}
       </div>
       <div
         style={{

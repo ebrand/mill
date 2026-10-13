@@ -1,5 +1,5 @@
 import type { WaterClient } from '../water/WaterClient';
-import type { TerrainField } from '../world/terrainField';
+import type { Rect, TerrainField } from '../world/terrainField';
 import { nearest, writeHeights } from './channel';
 import type { ChannelSection } from './channelTool';
 import { DEFAULT_EMBANKMENT, type EmbankmentPlan, type EmbankmentResult, planEmbankment, shapeBank } from './embankment';
@@ -28,6 +28,8 @@ export interface EmbankmentSummary {
 export interface EmbankmentEnv {
   field: TerrainField;
   water: () => WaterClient | null;
+  /** Called just before a committed bank changes the field (for undo). */
+  beforeCommit: (rect: Rect, label: string) => void;
   onCommit: (result: EmbankmentResult) => void;
 }
 
@@ -162,6 +164,7 @@ export class EmbankmentController implements PathSource {
 
   commit() {
     if (!this.env || !this.result) return null;
+    this.env.beforeCommit(this.result.rect, 'bank');
     writeHeights(this.env.field, this.result.rect, this.result.heights);
     const result = this.result;
     this.env.onCommit(result);

@@ -145,12 +145,20 @@ export class TerrainField {
    * amount is the change in meters at the center for this call; digging is scaled by the
    * material's dig rate. Returns the changed rectangle and volumes moved.
    */
-  brush(x: number, z: number, radius: number, amount: number): EditResult {
+  /** Samples a brush at (x, z) with this radius could change. */
+  brushRect(x: number, z: number, radius: number): Rect {
     const { nx, nz, dx } = this;
-    const i0 = Math.max(0, Math.floor((x - radius - this.x0) / dx - 0.5));
-    const i1 = Math.min(nx, Math.ceil((x + radius - this.x0) / dx + 0.5));
-    const j0 = Math.max(0, Math.floor((z - radius - this.z0) / dx - 0.5));
-    const j1 = Math.min(nz, Math.ceil((z + radius - this.z0) / dx + 0.5));
+    return {
+      i0: Math.max(0, Math.floor((x - radius - this.x0) / dx - 0.5)),
+      i1: Math.min(nx, Math.ceil((x + radius - this.x0) / dx + 0.5)),
+      j0: Math.max(0, Math.floor((z - radius - this.z0) / dx - 0.5)),
+      j1: Math.min(nz, Math.ceil((z + radius - this.z0) / dx + 0.5)),
+    };
+  }
+
+  brush(x: number, z: number, radius: number, amount: number): EditResult {
+    const { nx, dx } = this;
+    const { i0, i1, j0, j1 } = this.brushRect(x, z, radius);
     let cut = 0;
     let fill = 0;
     let dirty: Rect | null = null;

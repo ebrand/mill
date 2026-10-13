@@ -1,6 +1,7 @@
 import { BufferAttribute, BufferGeometry, type Camera, Line, Raycaster, Vector2 } from 'three';
 import { vec4 } from 'three/tsl';
 import { LineBasicNodeMaterial } from 'three/webgpu';
+import type { EditHistory } from '../world/editHistory';
 import type { Rect, TerrainField } from '../world/terrainField';
 import type { TerrainMeshes } from '../world/terrainMesh';
 
@@ -18,9 +19,6 @@ export const BRUSH_RADIUS = { min: 1, max: 12, initial: 3 };
 export class EarthBrush {
   tool: Tool = 'look';
   radius = BRUSH_RADIUS.initial;
-  /** Running totals, m^3. */
-  cut = 0;
-  fill = 0;
   /** A closed strip (first vertex repeated): WebGPU has no line-loop primitive. */
   readonly ring: Line;
 
@@ -37,24 +35,35 @@ export class EarthBrush {
   };
   private readonly onLeave = () => {
     this.inside = false;
-    this.down = false;
+    this.stopStroke();
   };
   private get working(): boolean {
     return this.tool === 'dig' || this.tool === 'fill';
   }
 
+  // One press-to-release stroke is one undo step.
   private readonly onDown = (e: PointerEvent) => {
-    if (e.button === 0 && this.working) this.down = true;
+    if (e.button !== 0 || !this.working) return;
+    this.down = true;
+    this.history.begin(this.tool === 'dig' ? 'dig' : 'fill');
   };
   private readonly onUp = (e: PointerEvent) => {
-    if (e.button === 0) this.down = false;
+    if (e.button === 0) this.stopStroke();
   };
+  private stopStroke() {
+    if (!this.down) return;
+    this.down = false;
+    this.history.end();
+    this.onStrokeEnd();
+  }
 
   constructor(
     private readonly field: TerrainField,
     private readonly terrain: TerrainMeshes,
     private readonly dom: HTMLElement,
     private readonly onBedChanged: (rect: Rect) => void,
+    private readonly history: EditHistory,
+    private readonly onStrokeEnd: () => void = () => {},
   ) {
     const g = new BufferGeometry();
     g.setAttribute('position', new BufferAttribute(new Float32Array((RING_SEGMENTS + 1) * 3), 3));
@@ -71,8 +80,8 @@ export class EarthBrush {
   }
 
   setTool(tool: Tool) {
+    this.stopStroke();
     this.tool = tool;
-    this.down = false;
   }
 
   /** Where the cursor meets the ground, or null. */
@@ -98,9 +107,10 @@ export class EarthBrush {
 
     if (this.down) {
       const amount = (this.tool === 'dig' ? -1 : 1) * RATE * Math.min(delta, 0.05);
+      // Save the tiles this dab can touch before changing them, for undo.
+      this.history.touch(this.field.brushRect(this.hit[0], this.hit[2], this.radius));
       const edit = this.field.brush(this.hit[0], this.hit[2], this.radius, amount);
-      this.cut += edit.cut;
-      this.fill += edit.fill;
+      this.history.record(edit.cut, edit.fill);
       if (edit.dirty) this.applyDirty(edit.dirty);
     }
   }

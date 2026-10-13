@@ -8,6 +8,9 @@ export interface WaterClientOptions {
   /** The terrain the river runs over; the sim grid matches its samples. */
   terrain: TerrainField;
   prefill: boolean;
+  /** Start from saved water instead (see saveGame.ts). */
+  depth?: Float32Array;
+  time?: number;
 }
 
 /**
@@ -44,7 +47,16 @@ export class WaterClient {
     };
     const t = this.options.terrain;
     // Copied (not transferred): the main thread keeps editing its terrain.
-    this.send(worker, { type: 'init', prefill: this.options.prefill, discharge: this.discharge, grid: t.spec, heights: t.heights.slice() });
+    const o = this.options;
+    this.send(worker, {
+      type: 'init',
+      prefill: o.prefill,
+      discharge: this.discharge,
+      grid: t.spec,
+      heights: t.heights.slice(),
+      depth: o.depth,
+      time: o.time,
+    });
     return worker;
   }
 
@@ -52,7 +64,24 @@ export class WaterClient {
     worker.postMessage(msg, transfer);
   }
 
+  private snapshots = new Map<number, (r: { depth: Float32Array; time: number }) => void>();
+  private nextSnapshot = 1;
+
+  /** The worker's current water depths (for saving). */
+  snapshot(): Promise<{ depth: Float32Array; time: number }> {
+    const id = this.nextSnapshot++;
+    return new Promise((resolve) => {
+      this.snapshots.set(id, resolve);
+      this.send(this.worker, { type: 'snapshot', id });
+    });
+  }
+
   private onMessage(msg: FromWorker) {
+    if (msg.type === 'snapshot') {
+      this.snapshots.get(msg.id)?.({ depth: msg.depth, time: msg.time });
+      this.snapshots.delete(msg.id);
+      return;
+    }
     if (msg.type === 'error') {
       this.error = msg.message;
       console.error('[water]', msg.message);
@@ -150,12 +179,21 @@ export class WaterClient {
 
   /** Restart the sim, either pre-filled or dry. */
   reset(prefill: boolean) {
+    this.restart({ prefill });
+  }
+
+  /** Restart the sim from the current terrain, optionally with saved water and discharge. */
+  restart({ prefill, depth, time, discharge }: { prefill: boolean; depth?: Float32Array; time?: number; discharge?: number }) {
     this.worker.terminate();
     this.grid = null;
     this.stats = null;
     this.spare = null;
     this.inFlight = false;
+    this.snapshots.clear();
+    if (discharge !== undefined) this.discharge = discharge;
     this.options.prefill = prefill;
+    this.options.depth = depth;
+    this.options.time = time;
     this.worker = this.start();
   }
 

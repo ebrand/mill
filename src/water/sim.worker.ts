@@ -66,6 +66,10 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
     if (msg.type === 'init') {
       sim = buildRiverSim({ dx: msg.grid.dx, prefill: msg.prefill, discharge: msg.discharge, terrain: { spec: msg.grid, heights: msg.heights } });
       offset = structureOffset(msg.grid);
+      if (msg.depth) {
+        for (let k = 0; k < sim.depth.length; k++) sim.depth[k] = msg.depth[k];
+        sim.time = msg.time ?? 0;
+      }
       post({
         type: 'ready',
         grid: { nx: sim.nx, nz: sim.nz, dx: sim.dx, x0: sim.x0, z0: sim.z0 },
@@ -74,6 +78,11 @@ self.onmessage = (e: MessageEvent<ToWorker>) => {
       return;
     }
     if (!sim) throw new Error('worker not initialised');
+    if (msg.type === 'snapshot') {
+      const depth = Float32Array.from(sim.depth);
+      post({ type: 'snapshot', id: msg.id, depth, time: sim.time }, [depth.buffer]);
+      return;
+    }
     if (msg.type === 'bed') {
       const { i0, j0, i1, j1 } = msg.rect;
       const w = i1 - i0;

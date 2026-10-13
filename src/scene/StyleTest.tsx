@@ -13,7 +13,11 @@ import { BRUSH_RADIUS, EarthBrush, type Tool } from '../tools/earthBrush';
 import type { SimStats } from '../water/protocol';
 import { WaterClient } from '../water/WaterClient';
 import { createWaterSurface } from '../water/waterSurface';
+import type { GameActions } from '../game/actions';
+import { incompatibility, readSave, SAVE_VERSION, writeSave } from '../save/saveGame';
+import { EarthLedger, EditHistory } from '../world/editHistory';
 import { createSiteField } from '../world/siteField';
+import type { Rect } from '../world/terrainField';
 import { buildSite } from './buildSite';
 import { MILL, WHEEL } from './site';
 
@@ -40,11 +44,13 @@ export function StyleTest({
   tool = 'look',
   channel,
   bank,
+  actions,
 }: {
   onWater?: (hud: WaterHud) => void;
   tool?: Tool;
   channel?: ChannelController;
   bank?: EmbankmentController;
+  actions?: GameActions;
 }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
@@ -56,6 +62,19 @@ export function StyleTest({
   // The one editable terrain: rendered, simulated over, and dug.
   const field = useMemo(() => createSiteField(WATER_DX), []);
   const site = useMemo(() => buildSite(field), [field]);
+  const ledger = useMemo(() => new EarthLedger(), []);
+  const history = useMemo(() => new EditHistory(field, ledger), [field, ledger]);
+
+  /** Push a changed rectangle of terrain to the meshes and the water sim. */
+  const applyRect = (rect: Rect) => {
+    site.terrain.update(rect);
+    water.current?.updateBed(rect);
+  };
+  const refreshUndo = () =>
+    actions?.setStatus({
+      undoLabel: history.canUndo ? history.undoLabel : null,
+      redoLabel: history.canRedo ? history.redoLabel : null,
+    });
   const ink = useMemo(() => createInkPipeline(renderer, scene, camera), [renderer, scene, camera]);
 
   useEffect(() => {
@@ -123,7 +142,7 @@ export function StyleTest({
 
   // Earthworks brush. Edits reach the water sim through the client, whichever is current.
   useEffect(() => {
-    const b = new EarthBrush(field, site.terrain, renderer.domElement, (rect) => water.current?.updateBed(rect));
+    const b = new EarthBrush(field, site.terrain, renderer.domElement, (rect) => water.current?.updateBed(rect), history, refreshUndo);
     brush.current = b;
     scene.add(b.ring);
     const onKey = (e: KeyboardEvent) => {
@@ -139,7 +158,7 @@ export function StyleTest({
       b.dispose();
       brush.current = null;
     };
-  }, [scene, renderer, field, site]);
+  }, [scene, renderer, field, site, history]);
 
   // Channel planning: the controller (shared with the UI panel) works on our terrain; the
   // view draws the proposal and handles clicks on the ground.
@@ -148,13 +167,15 @@ export function StyleTest({
     channel.env = {
       field,
       water: () => water.current,
+      beforeCommit: (rect, label) => {
+        history.begin(label);
+        history.touch(rect);
+      },
       onCommit: (result) => {
-        site.terrain.update(result.rect);
-        water.current?.updateBed(result.rect);
-        if (brush.current) {
-          brush.current.cut += result.cut;
-          brush.current.fill += result.fill;
-        }
+        history.record(result.cut, result.fill);
+        history.end();
+        applyRect(result.rect);
+        refreshUndo();
       },
     };
     const view = new PathView(channel, field, renderer.domElement, () => camera);
@@ -167,7 +188,7 @@ export function StyleTest({
       channelView.current = null;
       channel.env = null;
     };
-  }, [channel, field, site, renderer, scene, camera]);
+  }, [channel, field, site, renderer, scene, camera, history]);
 
   // Bank (embankment) planning, the same way.
   useEffect(() => {
@@ -175,10 +196,15 @@ export function StyleTest({
     bank.env = {
       field,
       water: () => water.current,
+      beforeCommit: (rect, label) => {
+        history.begin(label);
+        history.touch(rect);
+      },
       onCommit: (result) => {
-        site.terrain.update(result.rect);
-        water.current?.updateBed(result.rect);
-        if (brush.current) brush.current.fill += result.fill;
+        history.record(0, result.fill);
+        history.end();
+        applyRect(result.rect);
+        refreshUndo();
       },
     };
     const view = new PathView(bank, field, renderer.domElement, () => camera);
@@ -191,7 +217,86 @@ export function StyleTest({
       bankView.current = null;
       bank.env = null;
     };
-  }, [bank, field, site, renderer, scene, camera]);
+  }, [bank, field, site, renderer, scene, camera, history]);
+
+  // Undo/redo and save/load, exposed to the toolbar through `actions` and to the keyboard.
+  useEffect(() => {
+    if (!actions) return;
+    const SLOT = 'slot1';
+    actions.undo = () => {
+      const rect = history.undo();
+      if (rect) applyRect(rect);
+      refreshUndo();
+    };
+    actions.redo = () => {
+      const rect = history.redo();
+      if (rect) applyRect(rect);
+      refreshUndo();
+    };
+    actions.save = async () => {
+      const client = water.current;
+      try {
+        const snap = client ? await client.snapshot() : null;
+        await writeSave(SLOT, {
+          version: SAVE_VERSION,
+          savedAt: Date.now(),
+          spec: field.spec,
+          heights: field.heights.slice(),
+          material: field.material.slice(),
+          depth: snap?.depth ?? null,
+          simTime: snap?.time ?? 0,
+          discharge: client?.discharge ?? 0,
+          cut: ledger.cut,
+          fill: ledger.fill,
+        });
+        actions.setStatus({ message: `Saved at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, hasSave: true });
+      } catch (err) {
+        actions.setStatus({ message: `Save failed: ${err instanceof Error ? err.message : err}` });
+      }
+    };
+    actions.load = async () => {
+      try {
+        const save = await readSave(SLOT);
+        if (!save) {
+          actions.setStatus({ message: 'No saved game' });
+          return;
+        }
+        const problem = incompatibility(save, field);
+        if (problem) {
+          actions.setStatus({ message: `Can't load: ${problem}` });
+          return;
+        }
+        field.heights.set(save.heights);
+        field.material.set(save.material);
+        site.terrain.update({ i0: 0, j0: 0, i1: field.nx, j1: field.nz });
+        ledger.cut = save.cut;
+        ledger.fill = save.fill;
+        history.clear();
+        channel?.clear();
+        bank?.clear();
+        water.current?.restart({ prefill: save.depth === null, depth: save.depth ?? undefined, time: save.simTime, discharge: save.discharge });
+        refreshUndo();
+        actions.setStatus({ message: `Loaded game saved ${new Date(save.savedAt).toLocaleString()}` });
+      } catch (err) {
+        actions.setStatus({ message: `Load failed: ${err instanceof Error ? err.message : err}` });
+      }
+    };
+    readSave(SLOT).then(
+      (s) => actions.setStatus({ hasSave: !!s }),
+      () => actions.setStatus({ hasSave: false }),
+    );
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e) || !(e.ctrlKey || e.metaKey)) return;
+      if (e.code === 'KeyZ' && !e.shiftKey) actions.undo();
+      else if ((e.code === 'KeyZ' && e.shiftKey) || e.code === 'KeyY') actions.redo();
+      else if (e.code === 'KeyS') actions.save();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    devExpose({ actions, history, ledger });
+    return () => window.removeEventListener('keydown', onKey);
+  }, [actions, field, site, history, ledger, channel, bank]);
 
   // With a tool active, the left button works the ground; orbit moves to the right button.
   useEffect(() => {
@@ -224,7 +329,7 @@ export function StyleTest({
       if (e.code === 'KeyE') ink.edgesOn.value = ink.edgesOn.value ? 0 : 1;
       if (e.code === 'KeyH') ink.hatchOn.value = ink.hatchOn.value ? 0 : 1;
       if (e.code === 'KeyT') ink.showTone.value = ink.showTone.value ? 0 : 1;
-      if (e.code === 'KeyS') washShadows.value = washShadows.value ? 0 : 1;
+      if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey) washShadows.value = washShadows.value ? 0 : 1;
     };
     window.addEventListener('keydown', onKey);
 
@@ -265,7 +370,7 @@ export function StyleTest({
           speed: client.speed,
           discharge: client.discharge,
           error: client.error,
-          earth: { tool: b?.tool ?? 'look', radius: b?.radius ?? 0, cut: b?.cut ?? 0, fill: b?.fill ?? 0 },
+          earth: { tool: b?.tool ?? 'look', radius: b?.radius ?? 0, cut: ledger.cut, fill: ledger.fill },
         });
       }
     }
