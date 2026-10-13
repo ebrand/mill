@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from 'react';
 import type { PlacementController } from '../mill/placement';
+import type { PlanBook } from '../plan/planBook';
 import { BREASTSHOT, CFS_PER_M3S, FT_PER_M } from '../mill/wheel';
 import { Field, INK } from './drawing';
 
-export function PlacementPanel({ controller }: { controller: PlacementController }) {
+export function PlacementPanel({ controller, plans }: { controller: PlacementController; plans?: PlanBook }) {
   const p = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const wheel = p.kind === 'wheel';
   return (
@@ -63,8 +64,21 @@ export function PlacementPanel({ controller }: { controller: PlacementController
         </div>
       ))}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-        <button disabled={p.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit', flex: 1 }}>
-          Build {wheel ? 'wheel' : 'gate'}
+        {plans && (
+          <button
+            disabled={p.points < 2}
+            onClick={() => {
+              const structure = controller.take();
+              if (structure) plans.add({ kind: 'structure', structure });
+            }}
+            style={{ font: 'inherit', flex: 1 }}
+            title="Lay it out in the works plan without building"
+          >
+            Add to plan
+          </button>
+        )}
+        <button disabled={p.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Build it now">
+          Build now
         </button>
         <button disabled={p.points === 0} onClick={() => controller.clear()} style={{ font: 'inherit' }}>
           Clear

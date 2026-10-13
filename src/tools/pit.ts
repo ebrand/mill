@@ -1,9 +1,14 @@
-import type { Rect, TerrainField } from '../world/terrainField';
+import { Material, type Rect, type TerrainField } from '../world/terrainField';
 
 export interface PitResult {
   rect: Rect;
   heights: Float32Array;
   cut: number;
+  /** Part of `cut` in ledge rock, m^3. */
+  cutRock: number;
+  /** Pit length along the wheel's line and mean depth below the ground, m (for its walls). */
+  length: number;
+  depth: number;
 }
 
 /**
@@ -31,6 +36,9 @@ export function planPit(
   const w = i1 - i0;
   const heights = new Float32Array(w * (j1 - j0));
   let cut = 0;
+  let cutRock = 0;
+  let depthSum = 0;
+  let pitCells = 0;
   for (let j = j0; j < j1; j++) {
     for (let i = i0; i < i1; i++) {
       const px = field.sampleX(i) - a.x;
@@ -41,8 +49,20 @@ export function planPit(
       const inPit = along >= start && along <= len && across <= width / 2 && along <= reach;
       const h = inPit ? Math.min(ground, floor) : ground;
       heights[(j - j0) * w + (i - i0)] = h;
-      cut += (ground - h) * field.dx * field.dx;
+      const removed = (ground - h) * field.dx * field.dx;
+      cut += removed;
+      if (field.material[j * field.nx + i] === Material.Rock) cutRock += removed;
+      if (inPit) {
+        depthSum += Math.max(0, ground - floor);
+        pitCells++;
+      }
     }
   }
-  return { rect: { i0, j0, i1, j1 }, heights, cut };
+  return { rect: { i0, j0, i1, j1 }, heights, cut, cutRock, length: Math.max(0, len - start), depth: pitCells ? depthSum / pitCells : 0 };
+}
+
+/** The pit a wheel structure needs (empty if it has no pit). */
+export function planWheelPit(field: TerrainField, s: { intake: { x: number; z: number }; outlet: { x: number; z: number }; width: number; pit?: { start: number; floor: number } }): PitResult {
+  if (!s.pit) return planPit(field, s.intake, s.outlet, Infinity, 0, -Infinity);
+  return planPit(field, s.intake, s.outlet, s.pit.start, s.width + 1.2, s.pit.floor);
 }

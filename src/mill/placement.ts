@@ -5,7 +5,8 @@ import type { WaterClient } from '../water/WaterClient';
 import { gateDischarge } from '../water/shallowWater';
 import type { TerrainField } from '../world/terrainField';
 import type { PathSource } from '../tools/pathView';
-import { planPit, type PitResult } from '../tools/pit';
+import { writeHeights } from '../tools/channel';
+import { type PitResult, planWheelPit } from '../tools/pit';
 import type { Rect } from '../world/terrainField';
 import { BREAST, newStructureId, pitLength, type Structure, type StructureKind, WHEEL_ENTRY_LOSS, wheelGeometry } from './structures';
 import { BREASTSHOT, runMill, SASH_SAW, wheelEfficiency, wheelPower } from './wheel';
@@ -187,31 +188,25 @@ export class PlacementController implements PathSource {
     this.emit();
   }
 
-  /** Build it. Returns the structure, or null if there's nothing to build. */
-  commit(): Structure | null {
+  /**
+   * The structure as placed, not yet built (no ground changed). A wheel carries its pit
+   * geometry; planWheelPit() digs it.
+   */
+  draft(): Structure | null {
     if (!this.env || this.points.length < 2 || this.preview.sill === null) return null;
-    this.built++;
+    const a = this.points[0];
+    const b = this.points[1];
     let pit: Structure['pit'];
     if (this.kind === 'wheel') {
-      // Dig the wheel pit, leaving a breast of earth between the race and the pit.
-      const a = this.points[0];
-      const b = this.points[1];
       const geo = wheelGeometry(this.preview.sill, this.env.field.heightAt(b.x, b.z));
-      const plan = planPit(this.env.field, a, b, BREAST, this.params.width + 1.2, geo.floor);
-      this.env.beforeDig?.(plan.rect, 'wheel pit');
-      const w = plan.rect.i1 - plan.rect.i0;
-      for (let j = plan.rect.j0; j < plan.rect.j1; j++)
-        for (let i = plan.rect.i0; i < plan.rect.i1; i++)
-          this.env.field.heights[j * this.env.field.nx + i] = plan.heights[(j - plan.rect.j0) * w + (i - plan.rect.i0)];
-      this.env.onDig?.(plan);
       pit = { start: BREAST, floor: geo.floor, radius: geo.radius };
     }
-    const s: Structure = {
+    return {
       id: newStructureId(this.kind),
       kind: this.kind,
-      name: this.kind === 'wheel' ? `Wheel ${this.built}` : `Gate ${this.built}`,
-      intake: { ...this.points[0] },
-      outlet: { ...this.points[1] },
+      name: this.kind === 'wheel' ? `Wheel ${this.built + 1}` : `Gate ${this.built + 1}`,
+      intake: { ...a },
+      outlet: { ...b },
       width: this.params.width,
       sill: this.preview.sill,
       opening: this.params.opening,
@@ -219,8 +214,32 @@ export class PlacementController implements PathSource {
       lumber: 0,
       pit,
     };
+  }
+
+  /** Build it now. Returns the structure, or null if there's nothing to build. */
+  commit(): Structure | null {
+    const s = this.draft();
+    if (!s || !this.env) return null;
+    this.built++;
+    if (s.kind === 'wheel') {
+      // Dig the wheel pit, leaving a breast of earth between the race and the pit.
+      const plan = planWheelPit(this.env.field, s);
+      this.env.beforeDig?.(plan.rect, 'wheel pit');
+      writeHeights(this.env.field, plan.rect, plan.heights);
+      this.env.onDig?.(plan);
+    }
     this.env.onBuild(s);
     this.clear();
+    return s;
+  }
+
+  /** Hand the draft over (e.g. to the works plan) and start afresh. */
+  take(): Structure | null {
+    const s = this.draft();
+    if (s) {
+      this.built++;
+      this.clear();
+    }
     return s;
   }
 

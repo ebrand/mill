@@ -186,6 +186,16 @@ export class ChannelController implements PathSource {
     return { offsets, before, after, water: bed + plan.depth };
   }
 
+  /** Hand the current plan over (e.g. to the works plan) and start afresh. */
+  take(): ChannelPlan | null {
+    const plan = this.plan ? { ...this.plan, points: this.plan.points.map((p) => ({ ...p })) } : null;
+    if (plan) {
+      this.clear();
+      this.recompute();
+    }
+    return plan;
+  }
+
   /** Dig it: write the preview into the terrain and hand it to the scene. */
   commit() {
     if (!this.env || !this.result) return null;

@@ -2,15 +2,19 @@ import { Canvas } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { GameActions } from './game/actions';
 import { PlacementController } from './mill/placement';
+import { PlanBook } from './plan/planBook';
 import { StructuresController } from './mill/structuresController';
 import { isTyping } from './debug/devExpose';
 import { ChannelController } from './tools/channelTool';
+import { LevelController } from './tools/levelTool';
 import { EmbankmentController } from './tools/embankmentTool';
 import type { Tool } from './tools/earthBrush';
 import { ChannelPanel } from './ui/ChannelPanel';
 import { EmbankmentPanel } from './ui/EmbankmentPanel';
+import { LevelPanel } from './ui/LevelPanel';
 import { PlacementPanel } from './ui/PlacementPanel';
 import { StructuresPanel } from './ui/StructuresPanel';
+import { WorksPlanPanel } from './ui/WorksPlanPanel';
 import { WebGPURenderer } from 'three/webgpu';
 import { StyleTest, type WaterHud } from './scene/StyleTest';
 
@@ -32,6 +36,7 @@ function formatHud({ stats, speed, discharge, error, earth }: WaterHud): string 
 
 const TOOLS: { id: Tool; label: string; key: string }[] = [
   { id: 'look', label: 'Look', key: 'Escape' },
+  { id: 'level', label: 'Level', key: 'KeyL' },
   { id: 'dig', label: 'Dig', key: 'KeyG' },
   { id: 'fill', label: 'Fill', key: 'KeyV' },
   { id: 'channel', label: 'Channel', key: 'KeyN' },
@@ -49,6 +54,9 @@ export function App() {
   const structures = useMemo(() => new StructuresController(), []);
   const gatePlan = useMemo(() => new PlacementController('gate'), []);
   const wheelPlan = useMemo(() => new PlacementController('wheel'), []);
+  const level = useMemo(() => new LevelController(), []);
+  const plans = useMemo(() => new PlanBook(), []);
+  const [showPlan, setShowPlan] = useState(false);
   const [showMill, setShowMill] = useState(true);
   const status = useSyncExternalStore(actions.subscribe, actions.getSnapshot);
   useEffect(() => {
@@ -56,6 +64,7 @@ export function App() {
       // Typing in the channel panel's fields shouldn't switch tools.
       if (isTyping(e)) return;
       if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey) setShowMill((v) => !v);
+      if (e.code === 'KeyP' && !e.ctrlKey && !e.metaKey) setShowPlan((v) => !v);
       const t = TOOLS.find((t) => t.key === e.code);
       if (t) setTool(t.id);
     };
@@ -86,12 +95,16 @@ export function App() {
           structures={structures}
           gatePlan={gatePlan}
           wheelPlan={wheelPlan}
+          level={level}
+          plans={plans}
         />
       </Canvas>
-      {tool === 'channel' && <ChannelPanel controller={channel} />}
-      {tool === 'bank' && <EmbankmentPanel controller={bank} />}
-      {tool === 'gate' && <PlacementPanel controller={gatePlan} />}
-      {tool === 'wheel' && <PlacementPanel controller={wheelPlan} />}
+      {tool === 'channel' && <ChannelPanel controller={channel} plans={plans} />}
+      {tool === 'bank' && <EmbankmentPanel controller={bank} plans={plans} />}
+      {tool === 'level' && <LevelPanel controller={level} />}
+      {tool === 'gate' && <PlacementPanel controller={gatePlan} plans={plans} />}
+      {tool === 'wheel' && <PlacementPanel controller={wheelPlan} plans={plans} />}
+      {showPlan && <WorksPlanPanel plans={plans} />}
       {showMill && <StructuresPanel controller={structures} />}
       <div style={{ position: 'fixed', top: 14, left: 16, display: 'flex', gap: 6, font: '14px Georgia, serif' }}>
         {TOOLS.map((t) => (
@@ -141,6 +154,21 @@ export function App() {
         ))}
         <span style={{ width: 12 }} />
         <button
+          onClick={() => setShowPlan((v) => !v)}
+          title="Show or hide the works plan (P)"
+          style={{
+            font: 'inherit',
+            padding: '4px 12px',
+            color: '#2b2620',
+            background: showPlan ? '#d9cdb4' : '#f1e9d8',
+            border: '1px solid #2b2620',
+            borderRadius: 2,
+            cursor: 'pointer',
+          }}
+        >
+          Plan
+        </button>
+        <button
           onClick={() => setShowMill((v) => !v)}
           title="Show or hide the mill panel (M)"
           style={{
@@ -172,7 +200,7 @@ export function App() {
         <br />
         River: 0 pause · 1 real time · 2 4× · 3 16× · [ ] inflow · R restart dry · F restart filled
         <br />
-        Earth: G dig · V fill · N channel · B bank · U gate · W wheel · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
+        Earth: L level · G dig · V fill · N channel · B bank · U gate · W wheel · Esc look · hold left button to work · right-drag orbits while a tool is on · , . brush size
       </div>
     </>
   );

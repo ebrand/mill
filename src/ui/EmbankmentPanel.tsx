@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
+import type { PlanBook } from '../plan/planBook';
 import type { EmbankmentController } from '../tools/embankmentTool';
 import { FT, Field, INK, Section, YD3 } from './drawing';
 
-export function EmbankmentPanel({ controller }: { controller: EmbankmentController }) {
+export function EmbankmentPanel({ controller, plans }: { controller: EmbankmentController; plans?: PlanBook }) {
   const s = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const p = s.params;
   return (
@@ -57,8 +58,21 @@ export function EmbankmentPanel({ controller }: { controller: EmbankmentControll
         </>
       )}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-        <button disabled={s.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit', flex: 1 }}>
-          Build bank
+        {plans && (
+          <button
+            disabled={s.points < 2}
+            onClick={() => {
+              const plan = controller.take();
+              if (plan) plans.add({ kind: 'bank', plan });
+            }}
+            style={{ font: 'inherit', flex: 1 }}
+            title="Lay it out in the works plan without building"
+          >
+            Add to plan
+          </button>
+        )}
+        <button disabled={s.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Build it now">
+          Build now
         </button>
         <button disabled={s.points === 0} onClick={() => controller.clear()} style={{ font: 'inherit' }}>
           Clear

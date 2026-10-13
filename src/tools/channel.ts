@@ -2,7 +2,7 @@
 // bed, and banks where the ground is too low to hold the water. Pure functions so the
 // geometry, volumes and capacity can be tested headless.
 
-import type { Rect, TerrainField } from '../world/terrainField';
+import { Material, type Rect, type TerrainField } from '../world/terrainField';
 
 export interface ChannelPlan {
   /** Control points in world XZ (at least two). */
@@ -126,6 +126,8 @@ export interface ChannelResult {
   /** New heights for `rect`, row-major. */
   heights: Float32Array;
   cut: number;
+  /** Part of `cut` that's in ledge rock, m^3. */
+  cutRock: number;
   fill: number;
   line: Centerline;
   /** Bed fall from start to end, m. */
@@ -151,6 +153,7 @@ export function planChannel(field: TerrainField, plan: ChannelPlan, maxReach = 3
   const heights = new Float32Array(w * (j1 - j0));
   const area = field.dx * field.dx;
   let cut = 0;
+  let cutRock = 0;
   let fill = 0;
   for (let j = j0; j < j1; j++) {
     for (let i = i0; i < i1; i++) {
@@ -160,11 +163,13 @@ export function planChannel(field: TerrainField, plan: ChannelPlan, maxReach = 3
       const h = d > reach ? ground : shapeGround(plan, bedAt(plan, s), d, ground);
       heights[(j - j0) * w + (i - i0)] = h;
       const delta = h - ground;
-      if (delta < 0) cut -= delta * area;
-      else fill += delta * area;
+      if (delta < 0) {
+        cut -= delta * area;
+        if (field.material[k] === Material.Rock) cutRock -= delta * area;
+      } else fill += delta * area;
     }
   }
-  return { rect: { i0, j0, i1, j1 }, heights, cut, fill, line, fall: plan.bedSlope * line.length };
+  return { rect: { i0, j0, i1, j1 }, heights, cut, cutRock, fill, line, fall: plan.bedSlope * line.length };
 }
 
 /** Write a rectangle of planned heights (row-major) into the field. */

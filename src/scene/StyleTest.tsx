@@ -15,6 +15,13 @@ import { WaterClient } from '../water/WaterClient';
 import { createWaterSurface } from '../water/waterSurface';
 import type { GameActions } from '../game/actions';
 import type { PlacementController } from '../mill/placement';
+import type { LevelController } from '../tools/levelTool';
+import type { PlanBook } from '../plan/planBook';
+import { PlanGhosts } from '../plan/planGhosts';
+import { newStructureId } from '../mill/structures';
+import { applyChannel, planChannel, writeHeights } from '../tools/channel';
+import { planEmbankment } from '../tools/embankment';
+import { planWheelPit } from '../tools/pit';
 import { MILL_LINK_ID, siteMillStructure } from '../mill/siteMill';
 import { StructureMeshes } from '../mill/structureMeshes';
 import type { StructuresController } from '../mill/structuresController';
@@ -52,6 +59,8 @@ export function StyleTest({
   structures,
   gatePlan,
   wheelPlan,
+  level,
+  plans,
 }: {
   onWater?: (hud: WaterHud) => void;
   tool?: Tool;
@@ -61,6 +70,8 @@ export function StyleTest({
   structures?: StructuresController;
   gatePlan?: PlacementController;
   wheelPlan?: PlacementController;
+  level?: LevelController;
+  plans?: PlanBook;
 }) {
   const { scene, camera, gl } = useThree();
   const renderer = gl as unknown as WebGPURenderer;
@@ -260,6 +271,7 @@ export function StyleTest({
           cut: ledger.cut,
           fill: ledger.fill,
           structures: structures?.structures.map((s) => ({ ...s })),
+          plans: plans?.items.map((i) => ({ ...i })),
         });
         actions.setStatus({ message: `Saved at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, hasSave: true });
       } catch (err) {
@@ -287,6 +299,7 @@ export function StyleTest({
         channel?.clear();
         bank?.clear();
         water.current?.restart({ prefill: save.depth === null, depth: save.depth ?? undefined, time: save.simTime, discharge: save.discharge });
+        plans?.restore(save.plans ?? []);
         if (structures) {
           if (save.structures) structures.restore(save.structures);
           else if (save.mill) structures.restore([siteMillStructure(save.mill.gate, save.mill.lumber)]);
@@ -312,7 +325,74 @@ export function StyleTest({
     window.addEventListener('keydown', onKey);
     devExpose({ actions, history, ledger });
     return () => window.removeEventListener('keydown', onKey);
-  }, [actions, field, site, history, ledger, channel, bank, structures]);
+  }, [actions, field, site, history, ledger, channel, bank, structures, plans]);
+
+  // The works plan: build items on request (recomputed against today's ground), and draw
+  // the rest as ghosts.
+  const planGhosts = useRef<PlanGhosts | null>(null);
+  useEffect(() => {
+    if (!plans) return;
+    /** One undoable edit: snapshot, write, account, push to meshes and water. */
+    const edit = (label: string, rect: Rect, write: () => void, cut: number, fill: number) => {
+      history.begin(label);
+      history.touch(rect);
+      write();
+      history.record(cut, fill);
+      history.end();
+      applyRect(rect);
+      refreshUndo();
+    };
+    plans.env = {
+      field,
+      build: (item) => {
+        const input = item.input;
+        if (input.kind === 'channel') {
+          const r = planChannel(field, input.plan);
+          edit(item.label, r.rect, () => applyChannel(field, r), r.cut, r.fill);
+          return true;
+        }
+        if (input.kind === 'bank') {
+          const r = planEmbankment(field, input.plan);
+          edit(item.label, r.rect, () => writeHeights(field, r.rect, r.heights), 0, r.fill);
+          return true;
+        }
+        if (!structures) return false;
+        const s = { ...input.structure, id: newStructureId(input.structure.kind), name: item.label };
+        if (s.kind === 'wheel') {
+          const pit = planWheelPit(field, s);
+          edit(`${item.label} pit`, pit.rect, () => writeHeights(field, pit.rect, pit.heights), pit.cut, 0);
+        }
+        structures.add(s);
+        return true;
+      },
+    };
+    const ghosts = new PlanGhosts(plans, field);
+    planGhosts.current = ghosts;
+    scene.add(ghosts.group);
+    devExpose({ plans });
+    return () => {
+      scene.remove(ghosts.group);
+      planGhosts.current = null;
+      plans.env = null;
+    };
+  }, [plans, field, scene, history, structures]);
+
+  // The surveyor's level.
+  const levelView = useRef<PathView | null>(null);
+  useEffect(() => {
+    if (!level) return;
+    level.env = { field, water: () => water.current };
+    const view = new PathView(level, field, renderer.domElement, () => camera);
+    levelView.current = view;
+    scene.add(view.group);
+    devExpose({ level });
+    return () => {
+      scene.remove(view.group);
+      view.dispose();
+      levelView.current = null;
+      level.env = null;
+    };
+  }, [level, field, renderer, scene, camera]);
 
   // Placing gates and wheels, and drawing the ones built.
   const gateView = useRef<PathView | null>(null);
@@ -418,6 +498,12 @@ export function StyleTest({
     site.wheelSpin.rotation.z += delta * speed * 0.75 * Math.min(1, flow / 2.5);
     site.flumeWater.visible = flow > 0.05;
     structureMeshes.current?.update(delta, speed);
+    planGhosts.current?.update();
+    if (level && levelView.current) {
+      level.update(performance.now());
+      levelView.current.active = tool === 'level';
+      levelView.current.update();
+    }
     for (const [plan, view, kind] of [
       [gatePlan, gateView.current, 'gate'],
       [wheelPlan, wheelView.current, 'wheel'],

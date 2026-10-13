@@ -38,7 +38,7 @@ function inkLine(dashed: boolean) {
   return m;
 }
 
-function polyline(n: number, dashed: boolean): Line {
+export function polyline(n: number, dashed: boolean): Line {
   const g = new BufferGeometry();
   g.setAttribute('position', new BufferAttribute(new Float32Array(n * 3), 3));
   g.setAttribute('lineDistance', new BufferAttribute(new Float32Array(n), 1));
@@ -47,7 +47,7 @@ function polyline(n: number, dashed: boolean): Line {
   return line;
 }
 
-function setPolyline(line: Line, pts: [number, number, number][]) {
+export function setPolyline(line: Line, pts: [number, number, number][]) {
   let g = line.geometry;
   if ((g.getAttribute('position') as BufferAttribute).count < pts.length) {
     g.dispose();

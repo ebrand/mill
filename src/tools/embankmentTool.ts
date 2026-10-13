@@ -162,6 +162,16 @@ export class EmbankmentController implements PathSource {
     return { offsets, before, after, water };
   }
 
+  /** Hand the current plan over (e.g. to the works plan) and start afresh. */
+  take(): EmbankmentPlan | null {
+    const plan = this.plan ? { ...this.plan, points: this.plan.points.map((p) => ({ ...p })) } : null;
+    if (plan) {
+      this.clear();
+      this.recompute();
+    }
+    return plan;
+  }
+
   commit() {
     if (!this.env || !this.result) return null;
     this.env.beforeCommit(this.result.rect, 'bank');

@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
+import type { PlanBook } from '../plan/planBook';
 import type { ChannelController, ChannelParams } from '../tools/channelTool';
 import { FT, Field, INK, Section, YD3 } from './drawing';
 
-export function ChannelPanel({ controller }: { controller: ChannelController }) {
+export function ChannelPanel({ controller, plans }: { controller: ChannelController; plans?: PlanBook }) {
   const s = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const set = <K extends keyof ChannelParams>(k: K) => (v: ChannelParams[K]) => controller.setParam(k, v);
   const p = s.params;
@@ -53,8 +54,21 @@ export function ChannelPanel({ controller }: { controller: ChannelController }) 
         </>
       )}
       <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-        <button disabled={s.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit', flex: 1 }}>
-          Dig channel
+        {plans && (
+          <button
+            disabled={s.points < 2}
+            onClick={() => {
+              const plan = controller.take();
+              if (plan) plans.add({ kind: 'channel', plan });
+            }}
+            style={{ font: 'inherit', flex: 1 }}
+            title="Lay it out in the works plan without digging"
+          >
+            Add to plan
+          </button>
+        )}
+        <button disabled={s.points < 2} onClick={() => controller.commit()} style={{ font: 'inherit' }} title="Dig it now">
+          Dig now
         </button>
         <button disabled={s.points === 0} onClick={() => controller.clear()} style={{ font: 'inherit' }}>
           Clear
